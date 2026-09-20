@@ -1,0 +1,24 @@
+{
+  "name": "saunamajuri",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "aws-cdk": "2.1142.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.0",
+    "typescript": "~7.0.2",
+    "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.269.0",
+    "constructs": "^10.5.0"
+  }
+}
