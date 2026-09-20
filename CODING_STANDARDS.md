@@ -72,6 +72,13 @@ semicolons. Run `npm run format`.
   hour, so re-running must always be safe.
 - **Anti-corruption at the edge.** One function owns each external payload shape,
   so an upstream change touches one place.
+- **Least privilege, always, where feasible.** Grant the actions a component
+  actually uses, on the resources it actually touches. Prefer an explicit
+  `iam.PolicyStatement` over CDK's `grant*` helpers — `grantReadWriteData` hands
+  out twelve DynamoDB actions including `Scan` and `DeleteItem`. Add permissions
+  when the code that needs them lands, not in anticipation, and assert the
+  resulting action set in `test/saunamajuri-stack.test.ts` so it cannot broaden
+  unnoticed.
 - **No web framework.** API Gateway routes to a Lambda handler directly. Adding
   Express or Nest would mean bundling and cold-starting a router to serve a
   handful of routes.
