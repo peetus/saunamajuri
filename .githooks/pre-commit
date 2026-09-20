@@ -1,0 +1,22 @@
+#!/bin/sh
+# Runs the full check before every commit: types, lint, formatting, tests.
+#
+# Configured by the "prepare" script in package.json, which points
+# core.hooksPath at this directory on npm install. No hook manager needed.
+#
+# To bypass in an emergency: git commit --no-verify
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "pre-commit: npm is not on PATH, cannot verify." >&2
+  echo "Open a shell where node is available, or commit with --no-verify." >&2
+  exit 1
+fi
+
+echo "pre-commit: running npm run check ..."
+
+if ! npm run check; then
+  echo "" >&2
+  echo "pre-commit: check failed, commit aborted." >&2
+  echo "Fix the above, or bypass deliberately with: git commit --no-verify" >&2
+  exit 1
+fi

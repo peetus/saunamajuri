@@ -1,0 +1,7 @@
+# Normalise line endings in the repository to LF.
+* text=auto
+
+# Shell scripts must keep LF even on Windows checkouts. A CRLF hook fails with
+# "bad interpreter: /bin/sh^M".
+*.sh text eol=lf
+.githooks/** text eol=lf

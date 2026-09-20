@@ -82,6 +82,11 @@ semicolons. Run `npm run format`.
 npm run check   # build, lint, format:check, test
 ```
 
+This runs automatically before every commit. `npm install` sets
+`core.hooksPath` to `.githooks/` via the `prepare` script, and
+`.githooks/pre-commit` aborts the commit if any check fails — no hook manager,
+no extra dependency. Bypass deliberately with `git commit --no-verify`.
+
 | Command                | Enforces                                   |
 | ---------------------- | ------------------------------------------ |
 | `npm run build`        | Types (`tsc --noEmit`)                     |
