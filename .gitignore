@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# CDK
+cdk.out/
+*.js
+!jest.config.js
+*.d.ts
+
+# build output
+dist/
+build/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+
+
+# Local planning material - personal context, not part of the public project.
+# Public docs live in docs/adr/ and (later) docs/architecture.md
+docs/plans/
+docs/specs/
+docs/agents/
+CLAUDE.md
