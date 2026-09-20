@@ -1,0 +1,4 @@
+node_modules/
+cdk.out/
+**/__snapshots__/
+package-lock.json
