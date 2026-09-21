@@ -1,28 +1,45 @@
-import { BatchWriteCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { type PriceSlot } from "../rules/types.js";
+import { BatchWriteCommand, PutCommand, QueryCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { type PriceSlot, type Window } from "../rules/types.js";
+import { helsinkiDate } from "../time.js";
 
 // Price slots are worthless once they are in the past, and TTL keeps the table
 // permanently inside the 25 GB always-free tier without a cleanup job.
 const PRICE_TTL_SECONDS = 30 * 24 * 60 * 60;
 
+// The feed never looks more than ~34 hours ahead, so a week is ample margin.
+const NOTIFICATION_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 // DynamoDB rejects BatchWriteItem requests carrying more than 25 items.
 const MAX_BATCH_ITEMS = 25;
 
 // BatchWriteItem can partially succeed, returning the rest in UnprocessedItems.
-// That is throttling, not failure, so the leftovers are retried rather than thrown.
+// That is throttling rather than failure, so the leftovers are retried - each
+// attempt waiting twice as long as the last, since an immediate retry throttles
+// again. Five attempts, pausing 100, 200, 400 and 800 ms.
 const MAX_BATCH_ATTEMPTS = 5;
+const FIRST_BACKOFF_MS = 100;
 
 export interface PriceStore {
   /** Upserts price slots. Safe to re-run: identical keys overwrite. */
   putPrices(slots: PriceSlot[], now: Date): Promise<void>;
 }
 
-export interface DynamoPriceStoreDeps {
-  client: DynamoDBDocumentClient;
-  tableName: string;
+/** Remembers which windows have already been emailed about, per rule. */
+export interface NotificationLog {
+  /** Windows this rule has already alerted on, within the markers' lifetime. */
+  notifiedWindows(ruleId: string): Promise<Window[]>;
+  /** Records that an alert went out, with the window it covered. */
+  markNotified(ruleId: string, window: Window, now: Date): Promise<void>;
 }
 
-export function createDynamoPriceStore({ client, tableName }: DynamoPriceStoreDeps): PriceStore {
+export interface DynamoStoreDeps {
+  client: DynamoDBDocumentClient;
+  tableName: string;
+  /** Injected so tests do not spend real seconds in the retry backoff. */
+  delay?: (ms: number) => Promise<void>;
+}
+
+export function createDynamoPriceStore({ client, tableName, delay = sleep }: DynamoStoreDeps): PriceStore {
   return {
     async putPrices(slots: PriceSlot[], now: Date): Promise<void> {
       const ttl = Math.floor(now.getTime() / 1000) + PRICE_TTL_SECONDS;
@@ -31,9 +48,9 @@ export function createDynamoPriceStore({ client, tableName }: DynamoPriceStoreDe
         const requests = slots.slice(i, i + MAX_BATCH_ITEMS).map((slot) => ({
           PutRequest: {
             Item: {
-              // Partitioning by day keeps a single day's slots in one partition,
-              // so the API can read a day with one query.
-              pk: `PRICE#${slot.startDate.slice(0, 10)}`,
+              // The Finnish calendar day, not the UTC one, so "today's prices"
+              // is a single query for the only users this serves.
+              pk: `PRICE#${helsinkiDate(new Date(slot.startDate))}`,
               sk: slot.startDate,
               price: slot.price,
               ttl,
@@ -41,7 +58,7 @@ export function createDynamoPriceStore({ client, tableName }: DynamoPriceStoreDe
           },
         }));
 
-        await writeBatch(client, tableName, requests);
+        await writeBatch(client, tableName, requests, delay);
       }
     },
   };
@@ -49,7 +66,16 @@ export function createDynamoPriceStore({ client, tableName }: DynamoPriceStoreDe
 
 type WriteRequest = { PutRequest: { Item: Record<string, unknown> } };
 
-async function writeBatch(client: DynamoDBDocumentClient, tableName: string, requests: WriteRequest[]): Promise<void> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function writeBatch(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  requests: WriteRequest[],
+  delay: (ms: number) => Promise<void>,
+): Promise<void> {
   let pending = requests;
 
   for (let attempt = 1; attempt <= MAX_BATCH_ATTEMPTS; attempt++) {
@@ -61,9 +87,50 @@ async function writeBatch(client: DynamoDBDocumentClient, tableName: string, req
     }
 
     pending = unprocessed as WriteRequest[];
+    if (attempt < MAX_BATCH_ATTEMPTS) {
+      await delay(FIRST_BACKOFF_MS * 2 ** (attempt - 1));
+    }
   }
 
   throw new Error(
     `BatchWriteItem left ${String(pending.length)} items unprocessed after ${String(MAX_BATCH_ATTEMPTS)} attempts`,
   );
+}
+
+export function createDynamoNotificationLog({ client, tableName }: DynamoStoreDeps): NotificationLog {
+  return {
+    async notifiedWindows(ruleId: string): Promise<Window[]> {
+      const result = await client.send(
+        new QueryCommand({
+          TableName: tableName,
+          KeyConditionExpression: "pk = :pk",
+          ExpressionAttributeValues: { ":pk": `NOTIF#${ruleId}` },
+          // An eventually consistent read can miss a marker written moments ago,
+          // and the cost of missing one is a duplicate email.
+          ConsistentRead: true,
+        }),
+      );
+
+      return (result.Items ?? []).map((item) => ({
+        startDate: item.sk as string,
+        endDate: item.endDate as string,
+        averagePrice: item.averagePrice as number,
+      }));
+    },
+
+    async markNotified(ruleId: string, window: Window, now: Date): Promise<void> {
+      await client.send(
+        new PutCommand({
+          TableName: tableName,
+          Item: {
+            pk: `NOTIF#${ruleId}`,
+            sk: window.startDate,
+            endDate: window.endDate,
+            averagePrice: window.averagePrice,
+            ttl: Math.floor(now.getTime() / 1000) + NOTIFICATION_TTL_SECONDS,
+          },
+        }),
+      );
+    },
+  };
 }
