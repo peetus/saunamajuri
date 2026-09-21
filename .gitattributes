@@ -1,5 +1,7 @@
-# Normalise line endings in the repository to LF.
-* text=auto
+# LF in the repository and in the working tree on every platform. Without the
+# explicit eol, a Windows checkout converts to CRLF and `prettier --check` fails
+# on a fresh clone, because Prettier's endOfLine default is lf.
+* text=auto eol=lf
 
 # Shell scripts must keep LF even on Windows checkouts. A CRLF hook fails with
 # "bad interpreter: /bin/sh^M".

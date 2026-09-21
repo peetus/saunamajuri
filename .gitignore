@@ -29,3 +29,6 @@ CLAUDE.md
 
 # aws lambda invoke output
 response.json
+
+# Feature tickets and specs for unbuilt work - planning material, not the project
+.scratch/
