@@ -7,15 +7,20 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+
+export interface SaunamajuriStackProps extends cdk.StackProps {
+  /** Address that receives price alerts. Supplied at deploy time via ALERT_EMAIL. */
+  alertEmail: string;
+}
 
 export class SaunamajuriStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: SaunamajuriStackProps) {
     super(scope, id, props);
 
-    // Single table. pk/sk are generic because it holds several item types:
-    // price slots today, rules and sent-notification markers later.
-    // On-demand billing means no idle capacity charge, and TTL expires old
-    // slots without a cleanup job.
+    // pk/sk are generic because one table holds several item types: price slots
+    // and sent-notification markers today, rules from evening 4.
     const table = new dynamodb.TableV2(this, "Table", {
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
@@ -32,30 +37,32 @@ export class SaunamajuriStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // SNS rather than SES: no domain verification, no sandbox exit.
+    const alerts = new sns.Topic(this, "Alerts", { displayName: "Saunamajuri alerts" });
+    alerts.addSubscription(new subscriptions.EmailSubscription(props.alertEmail));
+
     const collector = new NodejsFunction(this, "Collector", {
       entry: "src/collector/handler.ts",
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_24_X,
       timeout: cdk.Duration.seconds(30),
       logGroup: collectorLogs,
-      environment: { TABLE_NAME: table.tableName },
+      environment: { TABLE_NAME: table.tableName, TOPIC_ARN: alerts.topicArn },
     });
 
-    // Granted explicitly rather than with table.grantReadWriteData(), which
-    // hands out twelve actions including Scan, DeleteItem and the stream
-    // readers. The collector writes price slots and nothing else, so it gets
-    // one action. Evening 3 adds GetItem, PutItem and Query for the rules and
-    // the notification dedupe markers - at that point, and not before.
+    // BatchWriteItem for the price slots, Query and PutItem for the markers.
     collector.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["dynamodb:BatchWriteItem"],
+        actions: ["dynamodb:BatchWriteItem", "dynamodb:PutItem", "dynamodb:Query"],
         resources: [table.tableArn],
       }),
     );
 
-    // Hourly rather than daily: the upstream publishes the next day's prices
-    // mid-afternoon, and the collector is idempotent, so re-fetching an
-    // overlapping window costs nothing and removes any dependence on timing.
+    // grantPublish is already one action on one topic.
+    alerts.grantPublish(collector);
+
+    // Hourly for retries, not freshness - the upstream publishes once a day.
+    // See docs/adr/0002.
     new events.Rule(this, "Hourly", {
       schedule: events.Schedule.rate(cdk.Duration.hours(1)),
       targets: [new targets.LambdaFunction(collector)],
@@ -63,5 +70,6 @@ export class SaunamajuriStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, "TableName", { value: table.tableName });
     new cdk.CfnOutput(this, "CollectorName", { value: collector.functionName });
+    new cdk.CfnOutput(this, "AlertsTopicArn", { value: alerts.topicArn });
   }
 }

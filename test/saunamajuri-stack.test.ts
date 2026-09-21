@@ -5,7 +5,11 @@ import { SaunamajuriStack } from "../lib/saunamajuri-stack.js";
 
 function synth(): Template {
   const app = new cdk.App();
-  const stack = new SaunamajuriStack(app, "TestStack", { env: { account: "123456789012", region: "eu-north-1" } });
+  // A literal address: the snapshot is committed.
+  const stack = new SaunamajuriStack(app, "TestStack", {
+    alertEmail: "test@example.com",
+    env: { account: "123456789012", region: "eu-north-1" },
+  });
   return Template.fromStack(stack);
 }
 
@@ -34,9 +38,8 @@ it("runs the collector every hour", () => {
   synth().hasResourceProperties("AWS::Events::Rule", { ScheduleExpression: "rate(1 hour)" });
 });
 
-// Least privilege, encoded. table.grantReadWriteData() would hand out twelve
-// actions; this fails if anyone reaches for the convenient grant, or adds an
-// action without deciding to.
+// Fails if anyone reaches for a grant* helper, or adds an action without
+// deciding to.
 it("grants the collector only the DynamoDB actions it uses", () => {
   const policies = synth().findResources("AWS::IAM::Policy");
   const statements = Object.values(policies).flatMap(
@@ -48,9 +51,34 @@ it("grants the collector only the DynamoDB actions it uses", () => {
     .filter((action) => action.startsWith("dynamodb:"))
     .sort();
 
-  expect(dynamoActions).toEqual(["dynamodb:BatchWriteItem"]);
+  expect(dynamoActions).toEqual(["dynamodb:BatchWriteItem", "dynamodb:PutItem", "dynamodb:Query"]);
 });
 
+it("grants the collector only sns:Publish", () => {
+  const policies = synth().findResources("AWS::IAM::Policy");
+  const statements = Object.values(policies).flatMap(
+    (policy) => (policy.Properties?.PolicyDocument as { Statement: { Action: string | string[] }[] }).Statement,
+  );
+
+  const snsActions = statements
+    .flatMap((statement) => (Array.isArray(statement.Action) ? statement.Action : [statement.Action]))
+    .filter((action) => action.startsWith("sns:"))
+    .sort();
+
+  expect(snsActions).toEqual(["sns:Publish"]);
+});
+
+it("subscribes the alert address to the topic", () => {
+  synth().hasResourceProperties("AWS::SNS::Subscription", { Protocol: "email", Endpoint: "test@example.com" });
+});
+
+// The Lambda bundle's content hash is in the template, so without normalising
+// it every handler edit churns the snapshot. Normalised, it moves only when
+// infrastructure does - and then it is worth reading.
+function synthWithoutAssetHashes(): unknown {
+  return JSON.parse(JSON.stringify(synth().toJSON()).replace(/[0-9a-f]{64}/g, "<asset-hash>"));
+}
+
 it("matches the approved infrastructure snapshot", () => {
-  expect(synth().toJSON()).toMatchSnapshot();
+  expect(synthWithoutAssetHashes()).toMatchSnapshot();
 });

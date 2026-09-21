@@ -3,6 +3,11 @@
 exports[`matches the approved infrastructure snapshot 1`] = `
 {
   "Outputs": {
+    "AlertsTopicArn": {
+      "Value": {
+        "Ref": "Alerts91F83244",
+      },
+    },
     "CollectorName": {
       "Value": {
         "Ref": "Collector9EBA7CF5",
@@ -22,6 +27,22 @@ exports[`matches the approved infrastructure snapshot 1`] = `
     },
   },
   "Resources": {
+    "Alerts91F83244": {
+      "Properties": {
+        "DisplayName": "Saunamajuri alerts",
+      },
+      "Type": "AWS::SNS::Topic",
+    },
+    "AlertstestexamplecomC9B1CB0F": {
+      "Properties": {
+        "Endpoint": "test@example.com",
+        "Protocol": "email",
+        "TopicArn": {
+          "Ref": "Alerts91F83244",
+        },
+      },
+      "Type": "AWS::SNS::Subscription",
+    },
     "Collector9EBA7CF5": {
       "DependsOn": [
         "CollectorServiceRoleDefaultPolicy51652F58",
@@ -30,12 +51,15 @@ exports[`matches the approved infrastructure snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-eu-north-1",
-          "S3Key": "1b457017577d2ff14077c025bc4b0ff4b31cf1ed7bfbf5e3a12d97e5fd5e0dc4.zip",
+          "S3Key": "<asset-hash>.zip",
         },
         "Environment": {
           "Variables": {
             "TABLE_NAME": {
               "Ref": "TableCD117FA1",
+            },
+            "TOPIC_ARN": {
+              "Ref": "Alerts91F83244",
             },
           },
         },
@@ -100,13 +124,24 @@ exports[`matches the approved infrastructure snapshot 1`] = `
         "PolicyDocument": {
           "Statement": [
             {
-              "Action": "dynamodb:BatchWriteItem",
+              "Action": [
+                "dynamodb:BatchWriteItem",
+                "dynamodb:PutItem",
+                "dynamodb:Query",
+              ],
               "Effect": "Allow",
               "Resource": {
                 "Fn::GetAtt": [
                   "TableCD117FA1",
                   "Arn",
                 ],
+              },
+            },
+            {
+              "Action": "sns:Publish",
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "Alerts91F83244",
               },
             },
           ],
