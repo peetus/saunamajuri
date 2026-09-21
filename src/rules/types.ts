@@ -1,9 +1,7 @@
 /**
  * An ISO-8601 timestamp in UTC, e.g. `2026-09-21T18:45:00.000Z`.
  *
- * A documentation alias, not a constraint — the compiler still accepts any
- * string. Everything in this project stores and reasons in UTC; conversion to
- * Europe/Helsinki happens only at the edge, when text is written for a human.
+ * A documentation alias, not a constraint — the compiler still accepts any string.
  */
 export type IsoDateString = string;
 
