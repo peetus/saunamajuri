@@ -61,6 +61,13 @@ semicolons. Run `npm run format`.
   exported members, where an editor surfaces them on hover.
 - **`/* */` inline only where genuinely necessary**, such as annotating an
   argument at a call site.
+- **Comment the non-obvious only.** A comment earns its place when the code
+  would otherwise catch the reader off guard. Do not restate the line, and keep
+  it to a line or two — a design decision that needs a paragraph belongs in
+  `docs/adr/`.
+- **Say it once, where it applies.** A rule that holds project-wide belongs in
+  this document; a call site keeps only what is true of that call site. The
+  same explanation in three files is two chances to leave a stale copy.
 
 ## Conventions
 
@@ -82,6 +89,30 @@ semicolons. Run `npm run format`.
 - **No web framework.** API Gateway routes to a Lambda handler directly. Adding
   Express or Nest would mean bundling and cold-starting a router to serve a
   handful of routes.
+
+## Tests
+
+Tests are written before the implementation, then revisited rather than left as
+first drafted. Each suite gets a pass for **fake tests**, one for
+**completeness** against the implementation's functions, parameters and return
+values, and one for **edge, chaos and adversarial cases** — then a final fake
+test pass, because the cases added last are the ones most likely to assert
+nothing.
+
+A fake test cannot fail for the reason it claims: no meaningful assertion, an
+assertion against a mock instead of behaviour, a tautology, or a snapshot that is
+regenerated whenever it disagrees. Strengthen it or delete it. A test kept for
+the count is worse than no test, because it reads as coverage.
+
+Cover three levels: unit for pure functions and adapters, integration for a
+handler wired to its real collaborators with only the AWS edge faked, and at
+least one user-story test that asserts the behaviour someone actually asked for.
+
+A test's name is a claim about what varies; the fixture has to actually vary it.
+A case named for a later run must advance the clock, one named for a batch must
+use more than one item. Holding the variable under test constant produces a
+green test that asserts nothing about the case it is named for, and the name is
+what future readers will believe.
 
 ## Checks
 
