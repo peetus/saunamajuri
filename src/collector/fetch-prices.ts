@@ -11,8 +11,8 @@ export type Fetcher = (url: string) => Promise<{ ok: boolean; status: number; js
  * Pure, so it is tested directly against a recorded payload. This is the
  * anti-corruption layer: if the upstream shape changes, only this function does.
  *
- * The API returns slots unordered, so they are sorted here once and every
- * consumer downstream may assume chronological order.
+ * Slots come back unordered and occasionally repeated, so they are sorted and
+ * deduplicated here once; downstream may assume unique and chronological.
  */
 export function parsePrices(raw: unknown): PriceSlot[] {
   if (typeof raw !== "object" || raw === null || !("prices" in raw)) {
@@ -24,15 +24,24 @@ export function parsePrices(raw: unknown): PriceSlot[] {
     throw new Error("unexpected API response: missing prices array");
   }
 
-  return prices
+  const slots = prices
     .map((entry): PriceSlot => {
       const { startDate, price } = entry as { startDate?: unknown; price?: unknown };
       if (typeof startDate !== "string" || typeof price !== "number") {
         throw new Error("unexpected API response: malformed price entry");
       }
+      // typeof NaN is "number", so it survives the check above - and then fails
+      // every comparison, slipping under a rule's price ceiling as a cheap window.
+      if (!Number.isFinite(price) || Number.isNaN(new Date(startDate).getTime())) {
+        throw new Error("unexpected API response: malformed price entry");
+      }
       return { startDate, price };
     })
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  // A repeat would make DynamoDB reject the whole BatchWriteItem and would break
+  // contiguity. The later entry wins, on the assumption that it is a correction.
+  return [...new Map(slots.map((slot) => [slot.startDate, slot])).values()];
 }
 
 /** Builds a price fetcher. Pass a fake `fetcher` in tests; the default hits the live API. */
