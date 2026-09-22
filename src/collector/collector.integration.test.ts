@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createCollector, type CollectorResult } from "./collect.js";
 import { createPriceFetcher } from "./fetch-prices.js";
 import { createSnsNotifier } from "./notify.js";
+import { createDynamoRuleStore } from "./rule-store.js";
 import { createDynamoNotificationLog, createDynamoPriceStore } from "./store.js";
 import { type Rule } from "../rules/types.js";
 
@@ -43,8 +44,12 @@ function fakeTable(): FakeTable {
         return Promise.resolve({});
       }
       if (command instanceof QueryCommand) {
-        const pk = command.input.ExpressionAttributeValues?.[":pk"] as string;
-        return Promise.resolve({ Items: [...items.values()].filter((item) => item.pk === pk) });
+        const values = command.input.ExpressionAttributeValues ?? {};
+        const pk = values[":pk"] as string;
+        const prefix = (values[":prefix"] as string | undefined) ?? "";
+        return Promise.resolve({
+          Items: [...items.values()].filter((item) => item.pk === pk && String(item.sk).startsWith(prefix)),
+        });
       }
       throw new Error("unexpected command");
     },
@@ -74,10 +79,17 @@ function feed(): { prices: { startDate: string; price: number; endDate: string }
   };
 }
 
+/** Seeds rules through the real store, so the collector reads them back as deployed. */
+async function seed(table: FakeTable, rules: Rule[]): Promise<void> {
+  const store = createDynamoRuleStore({ client: table.client, tableName: TABLE });
+  for (const rule of rules) {
+    await store.putRule(rule);
+  }
+}
+
 function build(
   table: FakeTable,
   published: PublishCommand["input"][],
-  rules: Rule[] = [SAUNA],
   now: Date = NOW,
 ): () => Promise<CollectorResult> {
   const sns = {
@@ -94,7 +106,7 @@ function build(
     store: createDynamoPriceStore({ client: table.client, tableName: TABLE }),
     notifications: createDynamoNotificationLog({ client: table.client, tableName: TABLE }),
     notifier: createSnsNotifier({ client: sns as unknown as SNSClient, topicArn: "arn:aws:sns:test" }),
-    rules,
+    rules: createDynamoRuleStore({ client: table.client, tableName: TABLE }),
     now: () => now,
   });
 }
@@ -103,9 +115,10 @@ describe("the collector, wired to its real collaborators", () => {
   let table: FakeTable;
   let published: PublishCommand["input"][];
 
-  beforeEach(() => {
+  beforeEach(async () => {
     table = fakeTable();
     published = [];
+    await seed(table, [SAUNA]);
   });
 
   it("stores the whole feed, one item per slot", async () => {
@@ -150,7 +163,7 @@ describe("the collector, wired to its real collaborators", () => {
   // The clock must advance, or the window cannot slide and the case is empty.
   it("sends nothing an hour later, when the window has slid inside the same trough", async () => {
     await build(table, published)();
-    const second = await build(table, published, [SAUNA], new Date("2026-09-21T13:00:00.000Z"))();
+    const second = await build(table, published, new Date("2026-09-21T13:00:00.000Z"))();
 
     expect(second.alerted).toEqual([]);
     expect(published).toHaveLength(1);
@@ -158,7 +171,7 @@ describe("the collector, wired to its real collaborators", () => {
 
   it("stays quiet across every run of an afternoon", async () => {
     for (const hour of ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]) {
-      await build(table, published, [SAUNA], new Date(`2026-09-21T${hour}:00.000Z`))();
+      await build(table, published, new Date(`2026-09-21T${hour}:00.000Z`))();
     }
 
     expect(published).toHaveLength(1);
@@ -181,7 +194,8 @@ describe("the collector, wired to its real collaborators", () => {
 
   it("tells a rule with no affordable window apart from one that has it", async () => {
     const strict: Rule = { id: "dishwasher", durationMinutes: 120, maxAveragePrice: 1, minLeadTimeMinutes: 12 * 60 };
-    const result = await build(table, published, [SAUNA, strict])();
+    await seed(table, [strict]);
+    const result = await build(table, published)();
 
     expect(result.alerted).toEqual(["sauna"]);
   });
@@ -201,7 +215,7 @@ describe("the collector, wired to its real collaborators", () => {
         client: { send: () => Promise.resolve({}) } as unknown as SNSClient,
         topicArn: "t",
       }),
-      rules: [SAUNA],
+      rules: createDynamoRuleStore({ client: table.client, tableName: TABLE }),
       now: () => NOW,
     });
 

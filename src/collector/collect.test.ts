@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createCollector, type CollectorResult } from "./collect.js";
 import { type Notifier } from "./notify.js";
+import { type RuleStore } from "./rule-store.js";
 import { type NotificationLog, type PriceStore } from "./store.js";
 import { type PriceSlot, type Rule, type Window } from "../rules/types.js";
 
@@ -15,6 +16,15 @@ function slots(price: number): PriceSlot[] {
     { startDate: "2026-09-21T01:00:00.000Z", price },
     { startDate: "2026-09-21T01:15:00.000Z", price },
   ];
+}
+
+/** The collector only reads rules, so the other two throw if they are reached. */
+function ruleStore(rules: Rule[]): RuleStore {
+  return {
+    getRules: () => Promise.resolve(rules),
+    putRule: () => Promise.reject(new Error("the collector must not write rules")),
+    getPricesForDay: () => Promise.reject(new Error("the collector must not read prices back")),
+  };
 }
 
 interface Options {
@@ -86,7 +96,7 @@ function harness(options: Options = {}): Harness {
     store,
     notifications,
     notifier,
-    rules: options.rules ?? [SAUNA],
+    rules: ruleStore(options.rules ?? [SAUNA]),
     now: () => NOW,
   });
 
@@ -152,6 +162,19 @@ describe("createCollector", () => {
     expect(sent.map((alert) => alert.ruleId)).toEqual(["laundry"]);
   });
 
+  it("says so when no rules are configured", async () => {
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: string) => {
+      logged.push(line);
+    });
+
+    const { collect } = harness({ rules: [] });
+    expect((await collect()).alerted).toEqual([]);
+    spy.mockRestore();
+
+    expect(logged.some((line) => line.includes("no rules configured"))).toBe(true);
+  });
+
   it("handles an empty feed without alerting", async () => {
     const { collect } = harness({ prices: [] });
 
@@ -215,7 +238,7 @@ describe("createCollector", () => {
         markNotified: () => Promise.resolve(),
       },
       notifier: { sendAlert: () => Promise.reject(new Error("should not send")) },
-      rules: [SAUNA],
+      rules: ruleStore([SAUNA]),
       now: () => NOW,
     });
 

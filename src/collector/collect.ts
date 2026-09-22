@@ -1,7 +1,8 @@
 import { findCheapestWindow } from "../rules/find-window.js";
 import { overlaps } from "../rules/overlap.js";
-import { type PriceSlot, type Rule } from "../rules/types.js";
+import { type PriceSlot } from "../rules/types.js";
 import { type Notifier } from "./notify.js";
+import { type RuleStore } from "./rule-store.js";
 import { type NotificationLog, type PriceStore } from "./store.js";
 
 export interface CollectorDeps {
@@ -9,7 +10,7 @@ export interface CollectorDeps {
   store: PriceStore;
   notifications: NotificationLog;
   notifier: Notifier;
-  rules: Rule[];
+  rules: RuleStore;
   now: () => Date;
 }
 
@@ -30,8 +31,16 @@ export function createCollector({ fetchPrices, store, notifications, notifier, r
     await store.putPrices(slots, runAt);
 
     const alerted: string[] = [];
+    const configured = await rules.getRules();
 
-    for (const rule of rules) {
+    // Worth its own line because the alternative is indistinguishable from a
+    // quiet night: with no rules the run stores prices, alerts nothing and
+    // looks healthy, which is how a deploy silently stops all alerting.
+    if (configured.length === 0) {
+      console.log(JSON.stringify({ msg: "no rules configured, nothing to alert on" }));
+    }
+
+    for (const rule of configured) {
       const window = findCheapestWindow(slots, rule, runAt);
       if (window === null) {
         continue;
