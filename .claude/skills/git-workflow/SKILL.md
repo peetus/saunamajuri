@@ -22,7 +22,14 @@ of a fully-changed tree, the working tree holds the final state, so the hook pas
 proves nothing about any individual commit. **Verification is a separate step and it is not
 optional.**
 
+**This loop destroys uncommitted work.** `git checkout --force` discards changes
+to tracked files, so the guard is not optional - it has already cost one
+evening's work here, on the third run of a loop that had been safe twice because
+the tree happened to be clean.
+
 ```bash
+[ -z "$(git status --porcelain)" ] || { echo "dirty tree, refusing"; exit 1; }
+
 for sha in <sha1> <sha2> ...; do
   git checkout -q --force --detach "$sha"
   npx tsc --noEmit >/dev/null 2>&1; build=$?
