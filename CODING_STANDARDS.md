@@ -93,11 +93,11 @@ semicolons. Run `npm run format`.
 ## Tests
 
 Tests are written before the implementation, then revisited rather than left as
-first drafted. Each suite gets a pass for **fake tests**, one for
-**completeness** against the implementation's functions, parameters and return
-values, and one for **edge, chaos and adversarial cases** — then a final fake
-test pass, because the cases added last are the ones most likely to assert
-nothing.
+first drafted. A suite goes through ordered passes — fake tests, completeness,
+exhaustiveness, then edge, chaos and adversarial cases — with a fake-test check
+at three points along the way. The order matters and is easy to compress away,
+so it is written out in the `test-writing` skill rather than summarised here.
+What follows is what those passes look for.
 
 A fake test cannot fail for the reason it claims: no meaningful assertion, an
 assertion against a mock instead of behaviour, a tautology, or a snapshot that is
@@ -113,6 +113,18 @@ A case named for a later run must advance the clock, one named for a batch must
 use more than one item. Holding the variable under test constant produces a
 green test that asserts nothing about the case it is named for, and the name is
 what future readers will believe.
+
+### Proving the suite can fail
+
+Break the implementation on purpose and confirm the suite notices — restore the
+bug a fix removed, flip a comparison, delete a guard. A mutation nothing catches
+names a test that was never load-bearing.
+
+**Mutate fixtures as well as implementations.** Breaking the implementation
+proves the assertions bite; it says nothing about a test whose setup never
+reaches the interesting state, because the mutant and the original both pass a
+scenario that does not happen. Freeze a clock, collapse a list to one element,
+make two identifiers equal, and see which tests still pass.
 
 ## Checks
 
