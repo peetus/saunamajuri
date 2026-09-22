@@ -32,3 +32,7 @@ response.json
 
 # Feature tickets and specs for unbuilt work - planning material, not the project
 .scratch/
+
+# Local hook wiring. The hook script itself is tracked, but whether it runs is a
+# personal choice rather than a rule for anyone who clones this.
+.claude/settings.local.json
