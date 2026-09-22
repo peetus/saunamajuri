@@ -1,17 +1,30 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { expect, it } from "vitest";
+import { beforeAll, expect, it } from "vitest";
 import { SaunamajuriStack } from "../lib/saunamajuri-stack.js";
 
+// Synthesised once and shared. Each call bundles both Lambdas with esbuild,
+// and the stack is deterministic, so one template serves every assertion.
+let template: Template | undefined;
+
 function synth(): Template {
-  const app = new cdk.App();
-  // A literal address: the snapshot is committed.
-  const stack = new SaunamajuriStack(app, "TestStack", {
-    alertEmail: "test@example.com",
-    env: { account: "123456789012", region: "eu-north-1" },
-  });
-  return Template.fromStack(stack);
+  if (template === undefined) {
+    const app = new cdk.App();
+    // A literal address: the snapshot is committed.
+    const stack = new SaunamajuriStack(app, "TestStack", {
+      alertEmail: "test@example.com",
+      env: { account: "123456789012", region: "eu-north-1" },
+    });
+    template = Template.fromStack(stack);
+  }
+  return template;
 }
+
+// The bundling outlasts vitest's 5s default, so it gets its own timeout here
+// rather than falling on whichever test runs first.
+beforeAll(() => {
+  synth();
+}, 30_000);
 
 it("keeps log retention at 7 days", () => {
   synth().hasResourceProperties("AWS::Logs::LogGroup", { RetentionInDays: 7 });
@@ -38,34 +51,43 @@ it("runs the collector every hour", () => {
   synth().hasResourceProperties("AWS::Events::Rule", { ScheduleExpression: "rate(1 hour)" });
 });
 
-// Fails if anyone reaches for a grant* helper, or adds an action without
-// deciding to.
-it("grants the collector only the DynamoDB actions it uses", () => {
+/** Every action of one prefix granted to the role whose logical id contains `role`. */
+function actionsFor(role: string, prefix: string): string[] {
   const policies = synth().findResources("AWS::IAM::Policy");
-  const statements = Object.values(policies).flatMap(
-    (policy) => (policy.Properties?.PolicyDocument as { Statement: { Action: string | string[] }[] }).Statement,
-  );
 
-  const dynamoActions = statements
+  return Object.entries(policies)
+    .filter(([logicalId]) => logicalId.includes(role))
+    .flatMap(
+      ([, policy]) => (policy.Properties?.PolicyDocument as { Statement: { Action: string | string[] }[] }).Statement,
+    )
     .flatMap((statement) => (Array.isArray(statement.Action) ? statement.Action : [statement.Action]))
-    .filter((action) => action.startsWith("dynamodb:"))
+    .filter((action) => action.startsWith(prefix))
     .sort();
+}
 
-  expect(dynamoActions).toEqual(["dynamodb:BatchWriteItem", "dynamodb:PutItem", "dynamodb:Query"]);
+// Asserted per function rather than across the whole template. An aggregate
+// assertion would pass while one role held the other's permissions, which is
+// the failure least privilege exists to prevent.
+it("grants the collector only the DynamoDB actions it uses", () => {
+  expect(actionsFor("Collector", "dynamodb:")).toEqual([
+    "dynamodb:BatchWriteItem",
+    "dynamodb:PutItem",
+    "dynamodb:Query",
+  ]);
+});
+
+// The API never writes price slots, so BatchWriteItem must not appear here.
+it("grants the API only the DynamoDB actions it uses", () => {
+  expect(actionsFor("Api", "dynamodb:")).toEqual(["dynamodb:PutItem", "dynamodb:Query"]);
 });
 
 it("grants the collector only sns:Publish", () => {
-  const policies = synth().findResources("AWS::IAM::Policy");
-  const statements = Object.values(policies).flatMap(
-    (policy) => (policy.Properties?.PolicyDocument as { Statement: { Action: string | string[] }[] }).Statement,
-  );
+  expect(actionsFor("Collector", "sns:")).toEqual(["sns:Publish"]);
+});
 
-  const snsActions = statements
-    .flatMap((statement) => (Array.isArray(statement.Action) ? statement.Action : [statement.Action]))
-    .filter((action) => action.startsWith("sns:"))
-    .sort();
-
-  expect(snsActions).toEqual(["sns:Publish"]);
+// The API has no reason to publish alerts.
+it("grants the API no SNS access at all", () => {
+  expect(actionsFor("Api", "sns:")).toEqual([]);
 });
 
 it("subscribes the alert address to the topic", () => {

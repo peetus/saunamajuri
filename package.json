@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/aws-lambda": "^8.10.163",
     "@types/node": "^24.10.1",
     "aws-cdk": "2.1142.0",
     "esbuild": "^0.28.2",

@@ -1,4 +1,6 @@
 import * as cdk from "aws-cdk-lib";
+import * as apigw from "aws-cdk-lib/aws-apigatewayv2";
+import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { type Construct } from "constructs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
@@ -20,7 +22,7 @@ export class SaunamajuriStack extends cdk.Stack {
     super(scope, id, props);
 
     // pk/sk are generic because one table holds several item types: price slots
-    // and sent-notification markers today, rules from evening 4.
+    // and sent-notification markers today, user rules alongside them.
     const table = new dynamodb.TableV2(this, "Table", {
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
@@ -68,6 +70,46 @@ export class SaunamajuriStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(collector)],
     });
 
+    const apiLogs = new logs.LogGroup(this, "ApiLogs", {
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const api = new NodejsFunction(this, "Api", {
+      entry: "src/api/handler.ts",
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      timeout: cdk.Duration.seconds(10),
+      logGroup: apiLogs,
+      environment: { TABLE_NAME: table.tableName },
+    });
+
+    // Query for reading prices and rules, PutItem for writing a rule. No
+    // BatchWriteItem: only the collector writes slots.
+    api.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:PutItem", "dynamodb:Query"],
+        resources: [table.tableArn],
+      }),
+    );
+
+    // Open because a browser page will be served from another origin, and
+    // there is nothing user-specific to protect. CORS is not authorisation.
+    const httpApi = new apigw.HttpApi(this, "HttpApi", {
+      corsPreflight: {
+        allowOrigins: ["*"],
+        allowMethods: [apigw.CorsHttpMethod.GET, apigw.CorsHttpMethod.PUT],
+        allowHeaders: ["content-type"],
+      },
+    });
+
+    httpApi.addRoutes({
+      path: "/{proxy+}",
+      methods: [apigw.HttpMethod.GET, apigw.HttpMethod.PUT],
+      integration: new integrations.HttpLambdaIntegration("ApiIntegration", api),
+    });
+
+    new cdk.CfnOutput(this, "ApiUrl", { value: httpApi.apiEndpoint });
     new cdk.CfnOutput(this, "TableName", { value: table.tableName });
     new cdk.CfnOutput(this, "CollectorName", { value: collector.functionName });
     new cdk.CfnOutput(this, "AlertsTopicArn", { value: alerts.topicArn });
