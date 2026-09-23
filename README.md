@@ -219,6 +219,22 @@ npm test
 `npm run check` also runs automatically before every commit, via a hook installed
 by `npm ci`.
 
+The same wiring installs a `pre-push` hook that refuses to push a commit whose
+content or message contains a real identifier of a live deployment - the account
+id, the API URL, a resource name, the address alerts are sent to, or the numeric
+GitHub ids in an OIDC subject. It derives those values from the environment on
+each run rather than reading a list, because a list in the repository would
+publish what it exists to withhold, and a list kept by hand is only current up
+to the last person who remembered it. It scans the whole range being pushed, not
+the working tree, since deleting a value from a file leaves it in the history.
+
+Values nothing in the environment still holds - an address the history was
+rewritten away from, say - go one per line in `.git/identifiers.local`, which the
+hook writes as a commented template on its first run and which is not tracked.
+The derived values are cached beside it. Both hold the identifiers verbatim,
+because a substring search needs them, and neither can reach the repository,
+because nothing under `.git` is trackable.
+
 The rule engine under `src/rules/` is pure TypeScript with no AWS imports, no
 I/O and no clock of its own, so it is tested as an ordinary library and could run
 unchanged in a browser. Everything that touches AWS sits behind an interface and

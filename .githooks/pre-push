@@ -1,0 +1,137 @@
+#!/bin/sh
+# Refuses to push commits whose content or messages contain a real identifier
+# belonging to this deployment.
+#
+# Configured by the "prepare" script in package.json, which points
+# core.hooksPath at this directory on npm install.
+#
+# The values are derived from the environment on each run rather than listed in
+# this file, for two reasons. A list committed here would publish exactly what
+# it exists to keep out. And a hand-kept list is only as current as the last
+# person to remember it: the GitHub repository id did not exist when the first
+# scan for this project was written, so the scan passed over it.
+#
+# Deriving needs the network, which a push needs anyway, so this fails closed
+# rather than degrading.
+#
+# To bypass deliberately: git push --no-verify
+
+set -u
+
+CACHE="$(git rev-parse --git-dir)/identifiers"
+EXTRA="$(git rev-parse --git-dir)/identifiers.local"
+MAX_AGE_HOURS=24
+STACK=SaunamajuriStack
+REGION=eu-north-1
+
+# Windows keeps the AWS CLI off the PATH inherited by some shells.
+aws_cli() {
+  if command -v aws >/dev/null 2>&1; then
+    MSYS_NO_PATHCONV=1 aws "$@"
+  elif [ -x "/c/Program Files/Amazon/AWSCLIV2/aws.exe" ]; then
+    MSYS_NO_PATHCONV=1 "/c/Program Files/Amazon/AWSCLIV2/aws.exe" "$@"
+  else
+    return 127
+  fi
+}
+
+stale() {
+  [ -s "$CACHE" ] || return 0
+  find "$CACHE" -mmin +$((MAX_AGE_HOURS * 60)) 2>/dev/null | grep -q . && return 0
+  return 1
+}
+
+derive() {
+  account=$(aws_cli sts get-caller-identity --query Account --output text 2>/dev/null) || return 1
+  [ -n "$account" ] && [ "$account" != "None" ] || return 1
+  printf '%s\n' "$account"
+
+  # Every stack output: the API URL and the resource names behind it.
+  aws_cli cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
+    --query "Stacks[0].Outputs[*].OutputValue" --output text 2>/dev/null | tr '\t' '\n'
+
+  # The address alerts are delivered to, which is not in any file by design.
+  topic=$(aws_cli cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
+    --query "Stacks[0].Outputs[?OutputKey=='AlertsTopicArn'].OutputValue" --output text 2>/dev/null)
+  [ -n "$topic" ] && aws_cli sns list-subscriptions-by-topic --topic-arn "$topic" --region "$REGION" \
+    --query "Subscriptions[*].Endpoint" --output text 2>/dev/null | tr '\t' '\n'
+
+  # The ids GitHub puts in an OIDC subject. Numbers, so no pattern finds them.
+  remote=$(git config --get remote.origin.url 2>/dev/null |
+    sed -E 's#^git@github\.com:#https://github.com/#; s#^https://github\.com/##; s#\.git$##')
+  if [ -n "$remote" ] && command -v gh >/dev/null 2>&1; then
+    gh api "repos/$remote" -q '.id, .owner.id' 2>/dev/null
+  fi
+}
+
+if stale; then
+  echo "pre-push: deriving this deployment's identifiers ..." >&2
+  if ! derived=$(derive); then
+    echo "pre-push: could not reach AWS to derive the identifiers to scan for." >&2
+    echo "A push needs the network, so this is not a reason to skip the scan." >&2
+    echo "Fix the credentials, or push deliberately with: git push --no-verify" >&2
+    exit 1
+  fi
+  printf '%s\n' "$derived" | sed '/^$/d; /^None$/d' | sort -u >"$CACHE"
+  # Verbatim, because a substring search needs them. Nothing under .git is
+  # trackable, so this cannot reach the repository, but it is still the one file
+  # that collects these values in one place. The chmod is a no-op on Windows,
+  # where MSYS does not map modes onto NTFS permissions: treat it as covering
+  # POSIX checkouts only, not as protection here.
+  chmod 600 "$CACHE" 2>/dev/null || true
+fi
+
+# Values nothing in the environment holds any more - a personal address that
+# the history was rewritten away from, for instance. Written out rather than
+# left to be discovered.
+if [ ! -f "$EXTRA" ]; then
+  cat >"$EXTRA" <<'TEMPLATE'
+# Identifiers the pre-push hook cannot derive, one per line.
+# Lines starting with # are ignored. This file is not tracked.
+#
+# Add anything real that AWS and GitHub no longer know about.
+TEMPLATE
+  chmod 600 "$EXTRA" 2>/dev/null || true
+fi
+
+# grep -f needs a file and stdin is already carrying the refs, so the merge goes
+# to a temporary one that does not outlive the run. Two files persist: the
+# derived set, which is rewritten wholesale on each refresh, and the hand-kept
+# one, which must survive that.
+PATTERNS=$(mktemp) || exit 1
+trap 'rm -f "$PATTERNS"' EXIT HUP INT TERM
+cat "$CACHE" "$EXTRA" 2>/dev/null | grep -v '^[[:space:]]*#' | sed '/^$/d' | sort -u >"$PATTERNS"
+[ -s "$PATTERNS" ] || exit 0
+
+# stdin: <local ref> <local sha> <remote ref> <remote sha>, one line per ref.
+ZERO=0000000000000000000000000000000000000000
+status=0
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue
+  if [ "$remote_sha" = "$ZERO" ]; then
+    range="$local_sha"
+  else
+    range="$remote_sha..$local_sha"
+  fi
+
+  # Patch bodies and commit messages, never author or committer metadata: the
+  # noreply address carries the owner id and is meant to be in every commit.
+  found=$(git log -p --format='%n%B' "$range" 2>/dev/null | grep -nFf "$PATTERNS") || continue
+
+  echo "pre-push: a real identifier appears in what you are about to push." >&2
+  echo "" >&2
+  printf '%s\n' "$found" | head -20 | sed 's/^/  /' >&2
+  echo "" >&2
+  echo "Range: $range" >&2
+  echo "Removing it from the working tree is not enough - the history is what" >&2
+  echo "is pushed. Rewrite the commits that carry it, then push again." >&2
+  status=1
+done
+
+[ "$status" -eq 0 ] || {
+  echo "" >&2
+  echo "To push anyway, deliberately: git push --no-verify" >&2
+  exit 1
+}
+
+exit 0
