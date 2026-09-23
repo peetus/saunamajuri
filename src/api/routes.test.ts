@@ -170,7 +170,13 @@ describe("PUT /rules", () => {
     ["a newline", "sauna\nboom"],
     ["a carriage return", "sauna\rboom"],
     ["a tab", "sauna\tboom"],
-    ["64+ characters", "a".repeat(65)],
+    ["32+ characters", "a".repeat(33)],
+    ["an uppercase letter", "Sauna"],
+    ["a space", "sauna heater"],
+    ["a dot", "sauna.example.com"],
+    ["a slash", "http://evil.tld"],
+    ["a colon", "ACTION REQUIRED: verify"],
+    ["a leading hyphen", "-sauna"],
     ["an empty string", ""],
     ["leading space", " sauna"],
     ["non-ASCII", "sauna\u00e4"],
@@ -184,7 +190,7 @@ describe("PUT /rules", () => {
 
   it("accepts an id at the length limit", async () => {
     const { route, recorded } = router();
-    const id = "a".repeat(64);
+    const id = "a".repeat(32);
     const response = await route(request("PUT", "/rules", { body: JSON.stringify({ ...SAUNA, id }) }));
 
     expect(response.statusCode).toBe(200);

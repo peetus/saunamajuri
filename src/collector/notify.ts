@@ -37,8 +37,8 @@ function price(alert: Alert): string {
 /**
  * Names every rule while they fit, and counts them once they do not.
  *
- * Rule ids run to 64 characters each, so two of them already overrun the limit,
- * and an overlong subject is rejected rather than truncated.
+ * Ten ids at the length the API accepts overrun the limit between them, and an
+ * overlong subject is rejected rather than truncated.
  */
 function subject(alerts: Alert[]): string {
   const cheapest = alerts.reduce((a, b) => (a.window.averagePrice <= b.window.averagePrice ? a : b));

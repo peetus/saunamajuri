@@ -15,11 +15,13 @@ function json(statusCode: number, body: unknown): APIGatewayProxyStructuredResul
   return { statusCode, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
 }
 
-// The id reaches two places that reject things a string may contain: an SNS
-// subject, which takes no newline and caps at 100 characters, and a DynamoDB
-// sort key, which caps at 1024 bytes. Printable ASCII within 64 characters
-// clears both with room for the rest of the subject.
-const RULE_ID = /^[\x20-\x7E]{1,64}$/;
+// Deliberately narrower than its sinks require. The id is rendered verbatim
+// into an SNS subject and body, and that mail arrives from Amazon with valid
+// DKIM at an address its reader has confirmed, so anything expressive enough
+// for a sentence or a URL is a phishing primitive handed to an unauthenticated
+// caller. Slug characters leave no room for one and cost nothing: the ids this
+// serves are `sauna` and `dishwasher`.
+const RULE_ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
 /** Validates an untrusted body into a Rule, or returns null. */
 function parseRule(body: string): Rule | null {

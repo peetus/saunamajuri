@@ -136,8 +136,8 @@ curl -s -X PUT "$API/rules" -H 'content-type: application/json' \
 ```
 
 A dishwasher draws far less than a sauna, so it tolerates a looser ceiling; set
-the ceiling per appliance rather than globally. Ids are printable ASCII, up to
-64 characters.
+the ceiling per appliance rather than globally. Ids are lowercase letters,
+digits, `-` and `_`, up to 32 characters.
 
 **Read prices.** Defaults to the current Finnish day.
 

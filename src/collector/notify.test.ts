@@ -145,7 +145,7 @@ describe("createSnsNotifier", () => {
   // Length and newlines are both rejected by SNS, so either one fails the
   // publish at runtime rather than here.
   describe("the subject SNS will accept", () => {
-    const longId = (n: number): Alert => alert({ id: String(n) + "a".repeat(63) });
+    const longId = (n: number): Alert => alert({ id: String(n) + "a".repeat(31) });
 
     it("stays within the limit for one rule at the id length limit", async () => {
       const subject = (await publish([longId(1)])).Subject ?? "";
@@ -164,12 +164,14 @@ describe("createSnsNotifier", () => {
     // Exactly at the documented cap, which SNS reads as exclusive. Without a
     // fixture that lands on the boundary, an off-by-one in the limit passes.
     it("falls back at exactly the documented cap", async () => {
-      const fixed = "Saunamajuri: ".length + " from 1.23 c/kWh".length;
-      const first = "a".repeat(34);
-      const second = "b".repeat(100 - fixed - first.length - ", ".length);
-      expect(`Saunamajuri: ${first}, ${second} from 1.23 c/kWh`).toHaveLength(100);
+      // Three ids inside what the API accepts, summing to the boundary exactly.
+      const first = "a".repeat(23);
+      const second = "b".repeat(22);
+      const third = "c".repeat(22);
+      expect(`Saunamajuri: ${first}, ${second}, ${third} from 1.23 c/kWh`).toHaveLength(100);
 
-      const subject = (await publish([alert({ id: first }), alert({ id: second })])).Subject ?? "";
+      const subject =
+        (await publish([alert({ id: first }), alert({ id: second }), alert({ id: third })])).Subject ?? "";
 
       expect(subject).not.toContain(first);
       expect(subject.length).toBeLessThan(100);

@@ -12,11 +12,18 @@ already decided, and Express would have to cold-start on every container to serv
 handler is split from its composition root for the same reason as the collector: importing the entry
 file in a test runs `requireEnv` at module scope and throws.
 
-A rule id is validated to printable ASCII within 64 characters, which is stricter than the domain
-needs and exactly what its two sinks need. The id reaches an SNS subject, which rejects newlines and
-caps at 100 characters, and a DynamoDB sort key, which caps at 1024 bytes. Neither constraint is
+A rule id is validated to lowercase slug characters within 32, which is stricter than anything its
+sinks require. The sinks set the outer bound: the id reaches an SNS subject, which rejects newlines
+and caps at 100 characters, and a DynamoDB sort key, which caps at 1024 bytes. Neither constraint is
 visible from the rule type, so the check lives at the edge where untrusted input arrives rather than
 in the domain that has no opinion about it.
+
+The charset is narrower than those sinks need, and the reason is the open write route. The id is
+rendered verbatim into the subject and body of a mail that arrives from Amazon with valid DKIM, at
+an address whose owner confirmed it. Printable ASCII within 64 characters is room for a sentence and
+a URL, so it would hand an unauthenticated caller a way to put chosen text into a trusted mailbox -
+a phishing primitive rather than the unwanted email the rest of this section prices. Slug characters
+leave no room for one, and the ids this serves are `sauna` and `dishwasher`.
 
 The API Lambda gets `Query` and `PutItem` and not `BatchWriteItem`, and the stack test asserts the
 set per role rather than across the template, because an aggregate assertion passes while one role

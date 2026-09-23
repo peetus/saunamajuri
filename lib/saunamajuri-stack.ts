@@ -141,9 +141,12 @@ export class SaunamajuriStack extends cdk.Stack {
 
     const deployRole = new iam.Role(this, "GithubDeployRole", {
       // The sub condition is the whole security boundary, and it names a branch
-      // rather than the repository. Scoped to the repository alone it would
-      // accept a token from any ref in it, so pushing a side branch would be
-      // enough to deploy and branch protection on main would not apply.
+      // rather than the repository: scoped to the repository alone it would
+      // accept a token from any ref in it, so pushing any side branch would
+      // deploy. What that buys depends on main being protected, which is a
+      // GitHub setting and is not established anywhere in this repository. This
+      // role also deploys the stack that defines it, so whoever can merge here
+      // can widen this condition on the next push.
       assumedBy: new iam.OpenIdConnectPrincipal(github, {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
