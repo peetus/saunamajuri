@@ -150,15 +150,29 @@ describe("createSnsNotifier", () => {
     it("stays within the limit for one rule at the id length limit", async () => {
       const subject = (await publish([longId(1)])).Subject ?? "";
 
-      expect(subject.length).toBeLessThanOrEqual(100);
+      expect(subject.length).toBeLessThan(100);
       expect(subject).not.toContain("\n");
     });
 
     it("stays within the limit for many rules at the id length limit", async () => {
       const subject = (await publish([longId(1), longId(2), longId(3), longId(4)])).Subject ?? "";
 
-      expect(subject.length).toBeLessThanOrEqual(100);
+      expect(subject.length).toBeLessThan(100);
       expect(subject).not.toContain("\n");
+    });
+
+    // Exactly at the documented cap, which SNS reads as exclusive. Without a
+    // fixture that lands on the boundary, an off-by-one in the limit passes.
+    it("falls back at exactly the documented cap", async () => {
+      const fixed = "Saunamajuri: ".length + " from 1.23 c/kWh".length;
+      const first = "a".repeat(34);
+      const second = "b".repeat(100 - fixed - first.length - ", ".length);
+      expect(`Saunamajuri: ${first}, ${second} from 1.23 c/kWh`).toHaveLength(100);
+
+      const subject = (await publish([alert({ id: first }), alert({ id: second })])).Subject ?? "";
+
+      expect(subject).not.toContain(first);
+      expect(subject.length).toBeLessThan(100);
     });
 
     it("falls back to counting the rules it could not name", async () => {

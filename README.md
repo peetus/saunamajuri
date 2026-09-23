@@ -107,7 +107,8 @@ straddle midnight and belong to two partitions. The rule engine therefore works
 on a flat list of slots and knows nothing about days — only the storage layer
 knows about partitions.
 
-Price slots and sent markers carry a TTL and delete themselves after 30 days.
+Price slots carry a 30-day TTL and sent markers a 7-day one, so both delete
+themselves and the table does not grow.
 Rules deliberately do not. A rule is the user's own configuration, and expiring
 it would stop their alerts with no error anywhere.
 

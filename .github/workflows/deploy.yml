@@ -8,6 +8,14 @@ permissions:
   id-token: write
   contents: read
 
+# Two pushes in quick succession would otherwise run cdk deploy against the same
+# stack at once: the second fails on UPDATE_IN_PROGRESS, and whichever finishes
+# last decides what is deployed. Queued rather than cancelled, because a
+# cancelled deploy can leave the stack mid-update.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

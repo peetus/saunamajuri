@@ -35,25 +35,33 @@ With no credentials in play and no cookies, it is not a control here at all. It 
 page served from another origin will need to read this, and closing it would protect nothing.
 
 `PUT /rules` has no authorizer, so anyone holding the URL can store rules that decide what is
-emailed, and can store as many as they like. That is accepted for now on the grounds that the URL is
-unpublished and the account is a personal sandbox, which is a weak defence and is recorded as such
-rather than dressed up. It also bounds what may be built on top: no public page can link to this API
-until the question is settled, because publishing the page publishes the URL. The options are an API
-key on the write route, a Lambda authorizer, or making the deployed surface read-only and keeping
-writes to the CLI. Whichever is taken, it is the first thing to settle before anything here is
-public.
+emailed. That is accepted for now on the grounds that the URL is unpublished and the account is a
+personal sandbox, which is a weak defence and is recorded as such rather than dressed up. It also
+bounds what may be built on top: no public page can link to this API until the question is settled,
+because publishing the page publishes the URL. The options are an API key on the write route, a
+Lambda authorizer, or making the deployed surface read-only and keeping writes to the CLI. Whichever
+is taken, it is the first thing to settle before anything here is public.
 
 Two consequences of that make the cost higher than an unwanted email or a wasted credit, and both
 end with the service quietly not working. Overwriting is the first: `putRule` is keyed by rule id,
 so a write with an existing id replaces that rule rather than adding one, and a ceiling nobody can
-meet stops the alerts without changing anything an operator would look at. The second is that
-`getRules` does not paginate, and a Query returns at most a megabyte. Sort keys are `RULE#<id>`
-ordered lexicographically, so enough rules whose ids sort earlier push the real ones onto a second
-page the collector never reads. Neither shows up as an error, and for a service whose only job is
-to tell somebody something, being silently switched off is worse than being expensive.
+meet stops the alerts without changing anything an operator would look at. This one still stands,
+and only an authorizer closes it. The second was that `getRules` read a single page, and a Query
+returns at most a megabyte: sort keys are `RULE#<id>` ordered lexicographically, so enough rules
+whose ids sorted earlier would push the real ones onto a page the collector never read. Neither
+shows up as an error, and for a service whose only job is to tell somebody something, being
+silently switched off is worse than being expensive.
 
 The account's Lambda concurrency limit of 10 is shared by both functions, so load on the API is not
 isolated from collection. Enough concurrent requests starve the collector of the concurrency it
-needs to run at all, which turns a request flood into a stoppage rather than a bill. A rule-count
-limit, pagination, and stage throttling each bound one of these, and all three are cheaper than the
-authorizer they do not replace.
+needs to run at all, which turns a request flood into a stoppage rather than a bill.
+
+A rule-count limit, pagination and stage throttling each bound one of these, and all three are
+cheaper than the authorizer they do not replace. All three have since been taken: `putRule` refuses
+a new id past ten rules, both queries follow `LastEvaluatedKey` to exhaustion, and the stage caps at
+10 requests a second with a burst of 20.
+
+The rule count is a read followed by a write rather than a condition expression, because a condition
+expression cannot count. Two writes racing can therefore both pass the check, so the limit bounds
+growth rather than holding exactly. That is the residual gap, and it is smaller than the one an
+authorizer would close.

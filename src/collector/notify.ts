@@ -9,8 +9,10 @@ const helsinkiTime = new Intl.DateTimeFormat("fi-FI", {
   minute: "2-digit",
 });
 
-// SNS caps the subject at 100 characters and rejects newlines.
-const SUBJECT_LIMIT = 100;
+// SNS documents the subject cap as 100 characters and rejects newlines. A
+// rejected publish loses the whole batch for that run, so this is the last
+// length that is unambiguously accepted rather than the documented figure.
+const SUBJECT_LIMIT = 99;
 
 /** One rule and the window that satisfied it. */
 export interface Alert {

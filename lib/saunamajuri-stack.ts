@@ -115,9 +115,12 @@ export class SaunamajuriStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration("ApiIntegration", api),
     });
 
-    // Both functions draw on the account's pool of 10 concurrent executions, so
-    // an unthrottled route can leave the collector nothing to run in. Reached
-    // through the CfnStage because HttpApi exposes no throttle property.
+    // Caps request rate, which bounds spend and the volume of abuse. It does not
+    // bound concurrency: 10 requests a second against a 10 second timeout leaves
+    // far more in flight than the account's 10 executions, and reserved
+    // concurrency cannot be set here at all. Starving the collector is made less
+    // likely rather than prevented. Reached through the CfnStage because HttpApi
+    // exposes no throttle property.
     if (httpApi.defaultStage === undefined) {
       throw new Error("the HTTP API has no default stage to throttle");
     }
@@ -126,6 +129,11 @@ export class SaunamajuriStack extends cdk.Stack {
 
     // GitHub Actions presents a short-lived OIDC token instead of an access key,
     // so no long-lived AWS credential exists to leak from the repository.
+    //
+    // The provider is account-level and this URL can be registered only once, so
+    // this stack owns it for the whole account: a second stack here must import
+    // this one rather than create its own, and cdk destroy takes it away from
+    // every repository that was relying on it.
     const github = new iam.OpenIdConnectProvider(this, "GithubOidc", {
       url: "https://token.actions.githubusercontent.com",
       clientIds: ["sts.amazonaws.com"],
@@ -145,8 +153,10 @@ export class SaunamajuriStack extends cdk.Stack {
       description: "Assumed by GitHub Actions to run cdk deploy",
     });
 
-    // The bootstrap roles hold the deployment permissions, so this role needs
-    // only the right to assume them rather than any power over the stack itself.
+    // This is the right to become the deployer, which is not a narrow grant:
+    // CDK's cfn-exec bootstrap role is an administrator by default. The prefix
+    // is the boundary CDK offers, so the control that matters is the trust
+    // policy above, which decides who may reach this role at all.
     deployRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ["sts:AssumeRole"],
