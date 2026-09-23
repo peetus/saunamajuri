@@ -70,13 +70,16 @@ with an 80-column line and a short line followed by a word that would have fitte
 
 ## Working practice in this repo
 
-**The maintainer reads the staged diff before every commit.** Make the edits, stage them, and hand
-the work over — do not commit unless asked. That rhythm is what the review depends on, and they
-cannot vouch in an interview for code they have not read.
+**The maintainer reads the staged diff before every commit, and commits it themselves.** Make the
+edits, stage them, and hand the work over. Do not commit until asked, and treat the permission as
+covering that commit only: agreement to commit one piece of work is not agreement to commit what
+comes after it. Never push, under any circumstances - hand over the command instead.
 
-When handing a message over rather than committing it, put it in a fenced code block in the reply so
-it copies as plain text. Write the draft to a scratch file, run the mechanical checks against it,
-then paste the result. The file is a working copy, never the thing handed over.
+**The message is handed over with the diff, not after it.** Put it in a fenced code block in the
+reply so it copies as plain text, for anything larger than a one-line change. The point is that it
+can be read, edited and argued with before it becomes history; a message written at commit time has
+already missed the review it exists for. Write the draft to a scratch file, run the mechanical
+checks against it, then paste the result. The file is a working copy, never the thing handed over.
 
 ## Splitting a dirty tree into several commits
 

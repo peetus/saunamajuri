@@ -165,5 +165,8 @@ after a rebase. Delete the remote branch first, then `-d` succeeds and there is 
 
 ## Handing off finished work
 
-Where publishing is the maintainer's own act, push the feature branch, fast-forward the local
-integration branch, then **give them the push command and stop**.
+Publishing is the maintainer's own act. **Never run `git push`**, on any branch, for any reason -
+not to complete a task, not after an approved commit, not because the remote is obviously where the
+work is going. Fast-forward the local integration branch if that helps, then give them the push
+command and stop. The same holds for anything else that leaves the machine: creating a remote,
+opening a pull request, publishing a package.
