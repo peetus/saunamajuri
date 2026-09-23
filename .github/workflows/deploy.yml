@@ -66,7 +66,19 @@ jobs:
       # including runs recorded while it was private. Masking is not retroactive.
       # Delete the historical runs before changing visibility, or close the open
       # write route first.
+      # The subject claim GitHub actually sends, which the trust policy must match
+      # exactly. Built from the numeric ids rather than the names because GitHub
+      # issues immutable subjects; `gh api repos/<owner>/<repo>/actions/oidc/
+      # customization/sub` reports the authoritative value. The ids arrive as env
+      # rather than inside the script, so nothing from the event is interpolated
+      # into a shell command.
+      - id: sub
+        run: echo "prefix=repo:${GITHUB_REPOSITORY_OWNER}@${OWNER_ID}/${GITHUB_REPOSITORY#*/}@${REPO_ID}" >> "$GITHUB_OUTPUT"
+        env:
+          OWNER_ID: ${{ github.repository_owner_id }}
+          REPO_ID: ${{ github.repository_id }}
+
       - run: npx cdk deploy --require-approval never
         env:
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_SUB_PREFIX: ${{ steps.sub.outputs.prefix }}

@@ -13,7 +13,7 @@ function synth(): Template {
     // A literal address: the snapshot is committed.
     const stack = new SaunamajuriStack(app, "TestStack", {
       alertEmail: "test@example.com",
-      githubRepo: "example-owner/saunamajuri",
+      githubSubjectPrefix: "repo:example-owner@1234/saunamajuri@5678",
       env: { account: "123456789012", region: "eu-north-1" },
     });
     template = Template.fromStack(stack);
@@ -44,7 +44,15 @@ function deployRoleTrust(): { Condition?: Record<string, Record<string, string>>
 it("lets only this repository's main branch assume the deploy role", () => {
   const sub = deployRoleTrust().Condition?.StringEquals?.["token.actions.githubusercontent.com:sub"];
 
-  expect(sub).toBe("repo:example-owner/saunamajuri:ref:refs/heads/main");
+  expect(sub).toBe("repo:example-owner@1234/saunamajuri@5678:ref:refs/heads/main");
+});
+
+// The numeric ids are what make a renamed or deleted repository unclaimable, so
+// a prefix that carries only names is a downgrade that still deploys fine.
+it("binds the deploy role to the immutable repository ids", () => {
+  const sub = String(deployRoleTrust().Condition?.StringEquals?.["token.actions.githubusercontent.com:sub"] ?? "");
+
+  expect(sub).toMatch(/^repo:[^@:/]+@\d+\/[^@:/]+@\d+:ref:refs\/heads\/\S+$/);
 });
 
 // A token minted for a different audience is a token minted for somebody else.

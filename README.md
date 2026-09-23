@@ -157,14 +157,14 @@ the stack.
 ```bash
 npm ci
 npx cdk bootstrap                     # once per account and region
-ALERT_EMAIL=you@example.com GITHUB_REPO=you/saunamajuri npx cdk deploy
+ALERT_EMAIL=you@example.com   GITHUB_SUB_PREFIX=$(gh api repos/you/saunamajuri/actions/oidc/customization/sub -q .sub_claim_prefix)   npx cdk deploy
 ```
 
 Both variables are required and neither has a default, so the deploy fails
 rather than falling back. `ALERT_EMAIL` would otherwise bake an address into the
-source. `GITHUB_REPO` scopes the trust policy of the role GitHub Actions
+source. `GITHUB_SUB_PREFIX` scopes the trust policy of the role GitHub Actions
 assumes, and a wrong value there is a real permission granted to a real
-repository, so it is named explicitly rather than guessed. **Confirm the
+repository, so it is read from GitHub rather than guessed. **Confirm the
 subscription**: AWS sends a confirmation link to that address and delivers
 nothing until it is clicked. Check the spam folder.
 
@@ -187,10 +187,23 @@ credentials that expire within the hour. A leaked access key stored as a repo
 secret would stay valid until somebody noticed.
 
 The trust policy is scoped through a condition on the token's `sub` claim, and it
-names a branch rather than a repository: `repo:<owner>/<repo>:ref:refs/heads/main`.
-Without the condition the role would accept a token from any repository on
-GitHub. With only the repository named it would accept one from any ref in it,
-which would make branch protection on `main` beside the point.
+names a branch rather than a repository. Without the condition the role would
+accept a token from any repository on GitHub. With only the repository named it
+would accept one from any ref in it, which would make branch protection on `main`
+beside the point.
+
+The subject is taken from GitHub rather than assembled from the repository name.
+GitHub issues immutable subjects, so the claim carries the numeric owner and
+repository ids - `repo:<owner>@<owner_id>/<repo>@<repo_id>:ref:refs/heads/main` -
+which means a repository that is renamed or deleted leaves no name behind for
+someone else to register and reuse. A mismatch here fails closed, as an
+`AssumeRoleWithWebIdentity` denial with no other symptom, so check the claim
+rather than the spelling:
+
+```bash
+gh api repos/<owner>/<repo>/actions/oidc/customization/sub -q .sub_claim_prefix
+aws iam get-role --role-name <role> --query 'Role.AssumeRolePolicyDocument'
+```
 
 Two repository secrets are needed: `AWS_DEPLOY_ROLE_ARN`, from the stack's
 `DeployRoleArn` output, and `ALERT_EMAIL`. The role must exist before the

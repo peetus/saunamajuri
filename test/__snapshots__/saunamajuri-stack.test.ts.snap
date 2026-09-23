@@ -349,7 +349,7 @@ exports[`matches the approved infrastructure snapshot 1`] = `
               "Condition": {
                 "StringEquals": {
                   "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-                  "token.actions.githubusercontent.com:sub": "repo:example-owner/saunamajuri:ref:refs/heads/main",
+                  "token.actions.githubusercontent.com:sub": "repo:example-owner@1234/saunamajuri@5678:ref:refs/heads/main",
                 },
               },
               "Effect": "Allow",

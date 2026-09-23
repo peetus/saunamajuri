@@ -15,8 +15,12 @@ import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 export interface SaunamajuriStackProps extends cdk.StackProps {
   /** Address that receives price alerts. Supplied at deploy time via ALERT_EMAIL. */
   alertEmail: string;
-  /** The `owner/repo` allowed to assume the deploy role. Supplied via GITHUB_REPO. */
-  githubRepo: string;
+  /**
+   * The subject prefix GitHub puts in its OIDC tokens for this repository,
+   * as `gh api repos/<owner>/<repo>/actions/oidc/customization/sub` reports it.
+   * Supplied via GITHUB_SUB_PREFIX.
+   */
+  githubSubjectPrefix: string;
 }
 
 export class SaunamajuriStack extends cdk.Stack {
@@ -147,10 +151,16 @@ export class SaunamajuriStack extends cdk.Stack {
       // GitHub setting and is not established anywhere in this repository. This
       // role also deploys the stack that defines it, so whoever can merge here
       // can widen this condition on the next push.
+      //
+      // The prefix is taken from GitHub rather than built from the repository
+      // name, because GitHub issues immutable subjects: the claim carries the
+      // numeric owner and repository ids, so a renamed or deleted repository
+      // does not leave a name for someone else to register and reuse. Building
+      // the string here would mean guessing which form is in force.
       assumedBy: new iam.OpenIdConnectPrincipal(github, {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": `repo:${props.githubRepo}:ref:refs/heads/main`,
+          "token.actions.githubusercontent.com:sub": `${props.githubSubjectPrefix}:ref:refs/heads/main`,
         },
       }),
       description: "Assumed by GitHub Actions to run cdk deploy",
