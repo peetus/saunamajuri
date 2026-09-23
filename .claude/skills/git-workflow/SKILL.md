@@ -82,7 +82,10 @@ On an unreviewed branch, a "fix the line I wrote four commits ago" commit is noi
 - **No:** changes that add behaviour. Their bodies carry reasoning worth keeping.
 
 `git rebase -i` is unavailable non-interactively, but **git 2.53+ runs `git rebase --autosquash
-<base>` without `-i`**.
+<base>` without `-i`**. Below that, `--autosquash` is **silently ignored**: the rebase reports
+"Successfully rebased" and the `fixup!` commits are still there afterwards. Verify rather than
+assume, because the success message is the same either way - make a throwaway `fixup!` commit,
+rebase, and check `git log` still shows it. This machine ran 2.35 until it was upgraded to 2.55.
 
 1. `git reset`, then `git add <files>` + `git commit --fixup=<sha>` per target. Check with
    `git blame` first; it is usually file-granular.
@@ -125,6 +128,16 @@ matches nothing, and the commit sits unconsumed. The tree sha must be unchanged.
 - **Uniform failure across every commit is an environment fault, not a code fault.** If all of them
   fail the same check, including ones that change nothing relevant, stop bisecting the commits and
   look at the harness.
+- **`git add <path>` then `git commit` commits the whole index, not that path.** Anything staged
+  earlier rides along. A probe commit on a throwaway branch swallowed a staged hook this way, and
+  deleting the branch deleted the only copy of it. Use `git commit -- <path>` to commit one path, or
+  check `git diff --cached --stat` before committing.
+- **Options placed after `--` are read as pathspecs.** `git commit -- file.ts -m "msg"` fails with
+  `pathspec '-m' did not match any file(s)`, having committed nothing, and leaves the file staged so
+  the tree looks like the commit worked. Options go before `--`.
+- **`git stash` takes staged-but-uncommitted work with it**, including files being added for the
+  first time. Before probing on a throwaway branch, copy anything uncommitted outside the repository
+  first. Two probes in one session cost work that was only recoverable because a copy existed.
 
 ## Stashing around a gate
 
