@@ -154,10 +154,44 @@ describe("the collector, wired to its real collaborators", () => {
 
     expect(result.alerted).toEqual(["sauna"]);
     expect(published).toHaveLength(1);
-    expect(published[0].Subject).toBe("Saunamajuri: sauna 1.50 c/kWh");
+    expect(published[0].Subject).toBe("Saunamajuri: sauna from 1.50 c/kWh");
     // 00:00Z is 03:00 in Helsinki, and the window is the first two hours of the
     // trough - the earliest of several equally cheap runs.
     expect(published[0].Message).toContain("03.00 - ti 05.00");
+  });
+
+  // The user story behind batching: at 1 c/kWh everything qualifies at once,
+  // and three appliances should not mean three emails.
+  it("covers every qualifying appliance in one email", async () => {
+    await seed(table, [
+      { id: "dishwasher", durationMinutes: 120, maxAveragePrice: 10, minLeadTimeMinutes: 720 },
+      { id: "laundry", durationMinutes: 120, maxAveragePrice: 10, minLeadTimeMinutes: 720 },
+    ]);
+
+    const result = await build(table, published)();
+
+    expect(result.alerted.sort()).toEqual(["dishwasher", "laundry", "sauna"]);
+    expect(published).toHaveLength(1);
+    expect(published[0].Message).toContain("dishwasher");
+    expect(published[0].Message).toContain("laundry");
+    expect(published[0].Message).toContain("sauna");
+    expect(published[0].Message).toContain("your limit is 10");
+    expect(published[0].Message).toContain("your limit is 3");
+  });
+
+  // Each appliance keeps its own marker, so one already reported drops out of
+  // the batch while the rest still go.
+  it("leaves an already-reported appliance out of the next email", async () => {
+    await seed(table, [{ id: "dishwasher", durationMinutes: 120, maxAveragePrice: 10, minLeadTimeMinutes: 720 }]);
+    await build(table, published)();
+
+    await seed(table, [{ id: "laundry", durationMinutes: 120, maxAveragePrice: 10, minLeadTimeMinutes: 720 }]);
+    const second = await build(table, published, new Date("2026-09-21T13:00:00.000Z"))();
+
+    expect(second.alerted).toEqual(["laundry"]);
+    expect(published).toHaveLength(2);
+    expect(published[1].Message).toContain("laundry");
+    expect(published[1].Message).not.toContain("dishwasher");
   });
 
   // The clock must advance, or the window cannot slide and the case is empty.

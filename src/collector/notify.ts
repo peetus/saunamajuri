@@ -9,9 +9,18 @@ const helsinkiTime = new Intl.DateTimeFormat("fi-FI", {
   minute: "2-digit",
 });
 
+// SNS caps the subject at 100 characters and rejects newlines.
+const SUBJECT_LIMIT = 100;
+
+/** One rule and the window that satisfied it. */
+export interface Alert {
+  rule: Rule;
+  window: Window;
+}
+
 export interface Notifier {
-  /** Sends one alert about a window that satisfies a rule. */
-  sendAlert(rule: Rule, window: Window): Promise<void>;
+  /** Sends one message covering every window found this run. */
+  sendAlerts(alerts: Alert[]): Promise<void>;
 }
 
 export interface SnsNotifierDeps {
@@ -19,26 +28,46 @@ export interface SnsNotifierDeps {
   topicArn: string;
 }
 
+function price(alert: Alert): string {
+  return alert.window.averagePrice.toFixed(2);
+}
+
+/**
+ * Names every rule while they fit, and counts them once they do not.
+ *
+ * Rule ids run to 64 characters each, so two of them already overrun the limit,
+ * and an overlong subject is rejected rather than truncated.
+ */
+function subject(alerts: Alert[]): string {
+  const cheapest = alerts.reduce((a, b) => (a.window.averagePrice <= b.window.averagePrice ? a : b));
+  const suffix = `from ${price(cheapest)} c/kWh`;
+  const named = `Saunamajuri: ${alerts.map((alert) => alert.rule.id).join(", ")} ${suffix}`;
+  if (named.length <= SUBJECT_LIMIT) {
+    return named;
+  }
+  return `Saunamajuri: ${String(alerts.length)} cheap windows ${suffix}`.slice(0, SUBJECT_LIMIT);
+}
+
+function body(alerts: Alert[]): string {
+  return alerts
+    .map(({ rule, window }) =>
+      [
+        rule.id,
+        `${helsinkiTime.format(new Date(window.startDate))} - ${helsinkiTime.format(new Date(window.endDate))}`,
+        `Average ${price({ rule, window })} c/kWh (your limit is ${String(rule.maxAveragePrice)})`,
+      ].join("\n"),
+    )
+    .join("\n\n");
+}
+
 export function createSnsNotifier({ client, topicArn }: SnsNotifierDeps): Notifier {
   return {
-    async sendAlert(rule: Rule, window: Window): Promise<void> {
-      const start = helsinkiTime.format(new Date(window.startDate));
-      const end = helsinkiTime.format(new Date(window.endDate));
-      const price = window.averagePrice.toFixed(2);
+    async sendAlerts(alerts: Alert[]): Promise<void> {
+      if (alerts.length === 0) {
+        return;
+      }
 
-      await client.send(
-        new PublishCommand({
-          TopicArn: topicArn,
-          // SNS caps the subject at 100 characters and rejects newlines.
-          Subject: `Saunamajuri: ${rule.id} ${price} c/kWh`,
-          Message: [
-            `Cheap window for ${rule.id}`,
-            "",
-            `${start} - ${end}`,
-            `Average ${price} c/kWh (your limit is ${String(rule.maxAveragePrice)})`,
-          ].join("\n"),
-        }),
-      );
+      await client.send(new PublishCommand({ TopicArn: topicArn, Subject: subject(alerts), Message: body(alerts) }));
     },
   };
 }

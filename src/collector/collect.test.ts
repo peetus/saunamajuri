@@ -35,17 +35,20 @@ interface Options {
   failOn?: "fetch" | "store" | "lookup" | "send" | "mark";
 }
 
+/** One publish. The outer array is emails sent, the inner one their contents. */
+type SentBatch = { ruleId: string; window: Window }[];
+
 interface Harness {
   collect: () => Promise<CollectorResult>;
   stored: PriceSlot[][];
-  sent: { ruleId: string; window: Window }[];
+  sent: SentBatch[];
   marked: string[];
 }
 
 /** Recording fakes, one per injected dependency. */
 function harness(options: Options = {}): Harness {
   const stored: PriceSlot[][] = [];
-  const sent: { ruleId: string; window: Window }[] = [];
+  const sent: SentBatch[] = [];
   const marked: string[] = [];
   const fail = (step: Options["failOn"]): Promise<never> | null =>
     options.failOn === step ? Promise.reject(new Error(`${step} failed`)) : null;
@@ -81,12 +84,12 @@ function harness(options: Options = {}): Harness {
   };
 
   const notifier: Notifier = {
-    sendAlert: (rule, window) => {
+    sendAlerts: (alerts) => {
       const failed = fail("send");
       if (failed !== null) {
         return failed;
       }
-      sent.push({ ruleId: rule.id, window });
+      sent.push(alerts.map(({ rule, window }) => ({ ruleId: rule.id, window })));
       return Promise.resolve();
     },
   };
@@ -117,10 +120,12 @@ describe("createCollector", () => {
     await collect();
 
     expect(sent).toEqual([
-      {
-        ruleId: "sauna",
-        window: { startDate: "2026-09-21T01:00:00.000Z", endDate: "2026-09-21T01:30:00.000Z", averagePrice: 1 },
-      },
+      [
+        {
+          ruleId: "sauna",
+          window: { startDate: "2026-09-21T01:00:00.000Z", endDate: "2026-09-21T01:30:00.000Z", averagePrice: 1 },
+        },
+      ],
     ]);
     expect(marked).toEqual(["sauna@2026-09-21T01:00:00.000Z"]);
   });
@@ -131,6 +136,14 @@ describe("createCollector", () => {
     expect(await collect()).toEqual({ stored: 2, alerted: [] });
     expect(sent).toEqual([]);
     expect(marked).toEqual([]);
+  });
+
+  it("does not send an empty email when no rule qualifies", async () => {
+    const { collect, sent } = harness({ prices: slots(99) });
+
+    await collect();
+
+    expect(sent).toEqual([]);
   });
 
   it("stores prices but sends nothing when no window qualifies", async () => {
@@ -145,7 +158,19 @@ describe("createCollector", () => {
     const { collect, sent } = harness({ rules: [SAUNA, LAUNDRY] });
 
     expect((await collect()).alerted).toEqual(["sauna", "laundry"]);
-    expect(sent.map((alert) => alert.ruleId)).toEqual(["sauna", "laundry"]);
+    expect(sent.flat().map((alert) => alert.ruleId)).toEqual(["sauna", "laundry"]);
+  });
+
+  // The behaviour that was asked for: one email listing every appliance worth
+  // running, not one email per appliance.
+  it("reports several qualifying rules in a single email", async () => {
+    const dishwasher: Rule = { id: "dishwasher", durationMinutes: 30, maxAveragePrice: 10, minLeadTimeMinutes: 0 };
+    const { collect, sent, marked } = harness({ rules: [SAUNA, LAUNDRY, dishwasher] });
+
+    expect((await collect()).alerted).toEqual(["sauna", "laundry", "dishwasher"]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].map((alert) => alert.ruleId)).toEqual(["sauna", "laundry", "dishwasher"]);
+    expect(marked).toHaveLength(3);
   });
 
   it("alerts a rule whose ceiling is met and skips one whose is not", async () => {
@@ -159,7 +184,7 @@ describe("createCollector", () => {
     const { collect, sent } = harness({ rules: [SAUNA, LAUNDRY], notified: ["sauna"] });
 
     expect((await collect()).alerted).toEqual(["laundry"]);
-    expect(sent.map((alert) => alert.ruleId)).toEqual(["laundry"]);
+    expect(sent.flat().map((alert) => alert.ruleId)).toEqual(["laundry"]);
   });
 
   it("says so when no rules are configured", async () => {
@@ -183,6 +208,15 @@ describe("createCollector", () => {
 
   it("does not mark a window as notified when the send fails", async () => {
     const { collect, marked } = harness({ failOn: "send" });
+
+    await expect(collect()).rejects.toThrow("send failed");
+    expect(marked).toEqual([]);
+  });
+
+  // One publish covers every rule, so a failure loses all of them together and
+  // the next run re-sends the lot.
+  it("marks nothing at all when a batched send fails", async () => {
+    const { collect, marked } = harness({ rules: [SAUNA, LAUNDRY], failOn: "send" });
 
     await expect(collect()).rejects.toThrow("send failed");
     expect(marked).toEqual([]);
@@ -237,7 +271,7 @@ describe("createCollector", () => {
         notifiedWindows: () => Promise.resolve([sentAlready]),
         markNotified: () => Promise.resolve(),
       },
-      notifier: { sendAlert: () => Promise.reject(new Error("should not send")) },
+      notifier: { sendAlerts: () => Promise.reject(new Error("should not send")) },
       rules: ruleStore([SAUNA]),
       now: () => NOW,
     });

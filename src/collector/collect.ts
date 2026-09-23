@@ -1,7 +1,7 @@
 import { findCheapestWindow } from "../rules/find-window.js";
 import { overlaps } from "../rules/overlap.js";
 import { type PriceSlot } from "../rules/types.js";
-import { type Notifier } from "./notify.js";
+import { type Alert, type Notifier } from "./notify.js";
 import { type RuleStore } from "./rule-store.js";
 import { type NotificationLog, type PriceStore } from "./store.js";
 
@@ -40,6 +40,8 @@ export function createCollector({ fetchPrices, store, notifications, notifier, r
       console.log(JSON.stringify({ msg: "no rules configured, nothing to alert on" }));
     }
 
+    const pending: Alert[] = [];
+
     for (const rule of configured) {
       const window = findCheapestWindow(slots, rule, runAt);
       if (window === null) {
@@ -51,12 +53,17 @@ export function createCollector({ fetchPrices, store, notifications, notifier, r
       if (alreadySent.some((sent) => overlaps(sent, window))) {
         continue;
       }
+      pending.push({ rule, window });
+    }
 
-      await notifier.sendAlert(rule, window);
+    if (pending.length > 0) {
+      await notifier.sendAlerts(pending);
 
       // After the send, so a failed send retries next run rather than going silent.
-      await notifications.markNotified(rule.id, window, runAt);
-      alerted.push(rule.id);
+      for (const { rule, window } of pending) {
+        await notifications.markNotified(rule.id, window, runAt);
+        alerted.push(rule.id);
+      }
     }
 
     console.log(JSON.stringify({ msg: "collected prices", slots: slots.length, alerted }));
