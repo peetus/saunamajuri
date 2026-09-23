@@ -83,9 +83,9 @@ On an unreviewed branch, a "fix the line I wrote four commits ago" commit is noi
 
 `git rebase -i` is unavailable non-interactively, but **git 2.53+ runs `git rebase --autosquash
 <base>` without `-i`**. Below that, `--autosquash` is **silently ignored**: the rebase reports
-"Successfully rebased" and the `fixup!` commits are still there afterwards. Verify rather than
-assume, because the success message is the same either way - make a throwaway `fixup!` commit,
-rebase, and check `git log` still shows it. This machine ran 2.35 until it was upgraded to 2.55.
+"Successfully rebased" and the `fixup!` commits are still there afterwards. Check `git --version`
+before relying on it, and verify rather than assume: the success message is the same either way, so
+make a throwaway `fixup!` commit, rebase, and see whether `git log` still shows it.
 
 1. `git reset`, then `git add <files>` + `git commit --fixup=<sha>` per target. Check with
    `git blame` first; it is usually file-granular.

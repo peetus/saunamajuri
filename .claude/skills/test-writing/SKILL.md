@@ -45,17 +45,17 @@ Reading is not enough. Mutate, and watch the suite:
 # revert the fix, run only the tests that claim to cover it, expect failure
 ```
 
-Mutate **fixtures** as well as implementations — freeze a clock, collapse a list to one element,
-make two identifiers equal. A test whose setup never reaches the interesting state passes both
-mutated and unmutated, and mutating the implementation alone cannot reveal it. That is how a case
-named "sends nothing on the next run" survived here while running twice at the same instant.
+Mutate **fixtures** as well as implementations. `CODING_STANDARDS.md` § Proving the suite can fail
+says why; what belongs here is that this is the half that gets skipped, because mutating the
+implementation feels like the whole job and produces a satisfying row of failures either way.
 
 ## Where this repo's suite has failed
 
 Both were invisible from inside the suite — everything green, coverage high:
 
-- **A fixture that held the variable under test constant.** The name described a case the setup
-  excluded, and the name is what gets believed.
+- **A fixture that held the variable under test constant.** A case named for a later run used a
+  frozen clock, so it ran twice at the same instant and could not have failed. The name described a
+  case the setup excluded, and the name is what gets believed.
 - **A snapshot regenerated whenever it disagreed.** It could not fail, because the Lambda bundle
   hash made it disagree on every edit, so `-u` became reflex. Normalising the hash fixed the test,
   not the discipline.
