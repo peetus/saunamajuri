@@ -48,6 +48,10 @@ export class SaunamajuriStack extends cdk.Stack {
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_24_X,
       timeout: cdk.Duration.seconds(30),
+      // Two Finnish days of slots are held at once, which has measured 119 MB.
+      // Lambda bills GB-seconds and scales CPU with memory, so headroom here is
+      // close to cost-neutral.
+      memorySize: 256,
       logGroup: collectorLogs,
       environment: { TABLE_NAME: table.tableName, TOPIC_ARN: alerts.topicArn },
     });
@@ -108,6 +112,15 @@ export class SaunamajuriStack extends cdk.Stack {
       methods: [apigw.HttpMethod.GET, apigw.HttpMethod.PUT],
       integration: new integrations.HttpLambdaIntegration("ApiIntegration", api),
     });
+
+    // Both functions draw on the account's pool of 10 concurrent executions, so
+    // an unthrottled route can leave the collector nothing to run in. Reached
+    // through the CfnStage because HttpApi exposes no throttle property.
+    if (httpApi.defaultStage === undefined) {
+      throw new Error("the HTTP API has no default stage to throttle");
+    }
+    const stage = httpApi.defaultStage.node.defaultChild as apigw.CfnStage;
+    stage.defaultRouteSettings = { throttlingRateLimit: 10, throttlingBurstLimit: 20 };
 
     new cdk.CfnOutput(this, "ApiUrl", { value: httpApi.apiEndpoint });
     new cdk.CfnOutput(this, "TableName", { value: table.tableName });

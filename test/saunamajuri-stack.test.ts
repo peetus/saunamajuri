@@ -41,6 +41,21 @@ it("never sets reserved concurrency", () => {
   }
 });
 
+// Running out of memory is an abrupt kill with no application log, so the
+// headroom is asserted rather than left to whoever next edits the stack.
+it("gives the collector headroom above its measured usage", () => {
+  const functions = Object.values(synth().findResources("AWS::Lambda::Function"));
+  const collector = functions.find((fn) => fn.Properties?.Timeout === 30);
+
+  expect(collector?.Properties?.MemorySize).toBeGreaterThanOrEqual(256);
+});
+
+it("throttles the API stage", () => {
+  synth().hasResourceProperties("AWS::ApiGatewayV2::Stage", {
+    DefaultRouteSettings: { ThrottlingBurstLimit: 20, ThrottlingRateLimit: 10 },
+  });
+});
+
 it("expires price slots with a TTL attribute", () => {
   synth().hasResourceProperties("AWS::DynamoDB::GlobalTable", {
     TimeToLiveSpecification: { AttributeName: "ttl", Enabled: true },

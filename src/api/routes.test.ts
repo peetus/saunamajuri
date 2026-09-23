@@ -1,7 +1,7 @@
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { describe, expect, it } from "vitest";
 import { createRouter, type Router } from "./routes.js";
-import { type RuleStore } from "../collector/rule-store.js";
+import { RULE_LIMIT, RuleLimitError, type RuleStore } from "../collector/rule-store.js";
 import { type PriceSlot, type Rule } from "../rules/types.js";
 
 // 12:00Z on 22 September is 15:00 in Helsinki, so "today" is 2026-09-22 either
@@ -200,6 +200,23 @@ describe("PUT /rules", () => {
 
     expect(response.statusCode).toBe(200);
     expect(recorded.putRules).toEqual([SAUNA]);
+  });
+
+  // 409 rather than 400: the request is well formed, the account is full.
+  it("answers 409 when the store refuses a rule beyond the limit", async () => {
+    const { route } = router({ putRule: () => Promise.reject(new RuleLimitError(RULE_LIMIT)) });
+    const response = await route(request("PUT", "/rules", { body: JSON.stringify(SAUNA) }));
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body ?? "{}")).toMatchObject({ limit: RULE_LIMIT });
+  });
+
+  it("does not turn an unrelated store failure into a 409", async () => {
+    const { route } = router({ putRule: () => Promise.reject(new Error("throughput exceeded")) });
+
+    await expect(route(request("PUT", "/rules", { body: JSON.stringify(SAUNA) }))).rejects.toThrow(
+      "throughput exceeded",
+    );
   });
 
   it("rejects a non-positive duration", async () => {

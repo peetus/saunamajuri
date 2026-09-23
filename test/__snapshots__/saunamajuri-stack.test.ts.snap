@@ -179,6 +179,7 @@ exports[`matches the approved infrastructure snapshot 1`] = `
             "Ref": "CollectorLogs893ABD2A",
           },
         },
+        "MemorySize": 256,
         "Role": {
           "Fn::GetAtt": [
             "CollectorServiceRole78F40CC4",
@@ -309,6 +310,10 @@ exports[`matches the approved infrastructure snapshot 1`] = `
           "Ref": "HttpApiF5A9A8A7",
         },
         "AutoDeploy": true,
+        "DefaultRouteSettings": {
+          "ThrottlingBurstLimit": 20,
+          "ThrottlingRateLimit": 10,
+        },
         "StageName": "$default",
       },
       "Type": "AWS::ApiGatewayV2::Stage",

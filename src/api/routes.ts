@@ -1,5 +1,5 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
-import { type RuleStore } from "../collector/rule-store.js";
+import { RuleLimitError, type RuleStore } from "../collector/rule-store.js";
 import { type Rule } from "../rules/types.js";
 import { helsinkiDate } from "../time.js";
 
@@ -88,7 +88,16 @@ export function createRouter({ rules, now }: RouterDeps): Router {
         return json(400, { error: "id, durationMinutes, maxAveragePrice and minLeadTimeMinutes are required" });
       }
 
-      await rules.putRule(rule);
+      try {
+        await rules.putRule(rule);
+      } catch (error) {
+        // Narrow: anything else is a fault, and answering 409 to it would tell
+        // the caller to change a request that was never the problem.
+        if (error instanceof RuleLimitError) {
+          return json(409, { error: error.message, limit: error.limit });
+        }
+        throw error;
+      }
       return json(200, { saved: rule.id });
     }
 
