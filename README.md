@@ -1,0 +1,218 @@
+# Saunamajuri
+
+Emails you when Finnish electricity is cheap enough to run something that draws
+real power — a sauna stove, a dishwasher, a washing machine — far enough ahead
+that you can plan around it.
+
+Nord Pool spot prices move by a factor of ten within a day. Heating a sauna at
+the wrong hour costs several times what the same heat costs six hours later, and
+nobody wants to read a price graph every evening. Saunamajuri watches the feed
+and sends one email when a cheap enough stretch appears.
+
+## What it does
+
+Every hour a Lambda fetches the published 15-minute spot prices, stores them, and
+runs a rule engine over them. A **rule** describes one appliance:
+
+```json
+{
+  "id": "sauna",
+  "durationMinutes": 120,
+  "maxAveragePrice": 3,
+  "minLeadTimeMinutes": 720
+}
+```
+
+That reads: find two contiguous hours averaging under 3 c/kWh, starting at least
+twelve hours from now. The lead time is what makes the alert useful rather than
+merely true — being told that power is cheap in ten minutes is not something you
+can act on.
+
+When a rule is satisfied, the cheapest qualifying window is emailed. Every rule
+satisfied in the same run shares one email, so three appliances do not mean
+three messages. A window already reported is not reported again, even as it
+drifts forward with each run.
+
+## Architecture
+
+```
+  EventBridge  ──hourly──▶  Collector Lambda  ──▶  SNS topic  ──▶  your inbox
+                                  │
+                        ┌─────────┴─────────┐
+                        ▼                   ▼
+                 spot price API        DynamoDB table
+                 (porssisahko.net)     prices, rules, sent markers
+                                            ▲
+                                            │
+                   you  ──▶  HTTP API  ──▶  API Lambda
+```
+
+Two Lambdas, one table, no servers and no VPC. The collector is the only writer
+of price data; the API Lambda reads prices and rules and writes rules.
+
+### Why each piece
+
+**Lambda** — the workload is one HTTP fetch an hour. Anything always-on would be
+paid for while idle. Every scheduled run is a cold start, because an hour between
+invocations outlives any warm execution environment; at roughly five seconds a
+run this is irrelevant here, and it would not be for a user-facing API.
+
+**EventBridge, hourly** — the upstream publishes once a day, after 14:00 Helsinki
+time, so the hourly schedule is not about freshness. It is a retry strategy. A
+daily schedule gets one attempt, and an upstream outage at that moment loses the
+day silently. Twenty-four attempts make a transient failure a non-event, and the
+run is idempotent, so the other twenty-three cost nothing.
+
+**DynamoDB, single table, on-demand** — one table holds price slots, user rules
+and sent-notification markers under a generic `pk`/`sk` pair. DynamoDB has no
+query planner: an access pattern the keys were not designed for is a table scan,
+not a slow query. The keys are therefore derived from the access patterns, and
+no read in this service needs a scan. On-demand billing avoids provisioning
+capacity for a workload of two dozen writes a day.
+
+**SNS** — a topic with an email subscription. SES would require domain
+verification and a sandbox exit for the same result. A new subscription stays
+`PendingConfirmation` until the recipient clicks the link in the confirmation
+mail, which is worth knowing because that mail is often filed as spam.
+
+**API Gateway HTTP API** — cheaper and faster than a REST API, with fewer
+features. A single `{proxy+}` route reaches one Lambda that does its own routing,
+which trades per-route IAM and metrics for a handler testable without any AWS in
+the loop.
+
+**CloudWatch** — log groups are declared in the stack rather than left to Lambda
+to create, so retention is seven days from the start and `cdk destroy` takes the
+logs with it. A Lambda-created log group defaults to never expiring and outlives
+the function that wrote to it.
+
+Fuller reasoning, including what was rejected, is in [`docs/adr/`](docs/adr/).
+
+## Data model
+
+One table, three item types:
+
+| Item        | `pk`                  | `sk`                       |
+| ----------- | --------------------- | -------------------------- |
+| Price slot  | `PRICE#<finnish day>` | `2026-09-24T18:45:00.000Z` |
+| Rule        | `USER#me`             | `RULE#sauna`               |
+| Sent marker | `NOTIF#sauna`         | `2026-09-24T20:00:00.000Z` |
+
+The partition key for prices is the **Finnish** calendar day, not the UTC day.
+Finland is UTC+2, and UTC+3 under summer time, so a day boundary falls at 21:00Z
+or 22:00Z depending on the season. Keying by UTC would split each Finnish day
+across two partitions and misfile the three hours around midnight.
+
+A partition is a storage boundary, not a domain boundary: a cheap window can
+straddle midnight and belong to two partitions. The rule engine therefore works
+on a flat list of slots and knows nothing about days — only the storage layer
+knows about partitions.
+
+Price slots and sent markers carry a TTL and delete themselves after 30 days.
+Rules deliberately do not. A rule is the user's own configuration, and expiring
+it would stop their alerts with no error anywhere.
+
+## Using it
+
+The API is unauthenticated. See [Security](#security) before exposing a
+deployment.
+
+```bash
+API=https://<your-api-id>.execute-api.eu-north-1.amazonaws.com
+```
+
+**List the configured rules.**
+
+```bash
+curl -s "$API/rules"
+```
+
+**Add or edit a rule.** `PUT` is an upsert keyed on `id`, so re-sending the same
+id replaces that rule and leaves the others alone.
+
+```bash
+curl -s -X PUT "$API/rules" -H 'content-type: application/json' \
+  -d '{"id":"dishwasher","durationMinutes":120,"maxAveragePrice":10,"minLeadTimeMinutes":720}'
+```
+
+A dishwasher draws far less than a sauna, so it tolerates a looser ceiling; set
+the ceiling per appliance rather than globally. Ids are printable ASCII, up to
+64 characters.
+
+**Read prices.** Defaults to the current Finnish day.
+
+```bash
+curl -s "$API/prices"
+curl -s "$API/prices?day=2026-09-24"
+```
+
+Prices are c/kWh including VAT, in 15-minute slots, as published by
+[porssisahko.net](https://porssisahko.net/).
+
+## Deploying
+
+Requires Node.js 24, an AWS account and credentials with permission to create
+the stack.
+
+```bash
+npm ci
+npx cdk bootstrap                     # once per account and region
+ALERT_EMAIL=you@example.com npx cdk deploy
+```
+
+`ALERT_EMAIL` is required and has no default — the deploy fails without it
+rather than falling back to an address baked into the source. **Confirm the
+subscription**: AWS sends a confirmation link to that address and delivers
+nothing until it is clicked. Check the spam folder.
+
+The stack outputs the API URL, table name, collector name and topic ARN. To
+re-read them later:
+
+```bash
+aws cloudformation describe-stacks --stack-name SaunamajuriStack \
+  --query "Stacks[0].Outputs"
+```
+
+`npx cdk destroy` removes everything, including the table and the logs.
+
+## Development
+
+```bash
+npm run check     # build, lint, format check and the full test suite
+npm test
+```
+
+`npm run check` also runs automatically before every commit, via a hook installed
+by `npm ci`.
+
+The rule engine under `src/rules/` is pure TypeScript with no AWS imports, no
+I/O and no clock of its own, so it is tested as an ordinary library and could run
+unchanged in a browser. Everything that touches AWS sits behind an interface and
+is injected, which is what lets the collector be tested wired to its real
+collaborators with only the AWS edge faked.
+
+Conventions and the testing approach are in
+[`CODING_STANDARDS.md`](CODING_STANDARDS.md).
+
+## Cost
+
+Designed to run at zero on the AWS Free Plan. Nothing here is always-on: no NAT
+gateway, no VPC, no relational database, no load balancer. The hourly collector,
+a table holding a few hundred small items and around 30 emails a month sit
+inside the perpetual free tiers.
+
+## Security
+
+**The write route has no authorizer.** Anyone who knows the URL can add, replace
+or overwrite rules, which in practice means redirecting or silencing the alerts
+of whoever deployed it. The prices it exposes are public data, and the email
+address is not readable through the API, but the deployment is single-user and
+assumes the URL stays private.
+
+This is a known, recorded limitation rather than an oversight — see
+[ADR 0004](docs/adr/0004-http-api-and-observability.md) for what it costs and
+what closing it would involve. Do not publish the URL, and add an authorizer
+before running this for anyone but yourself.
+
+## License
+
+None yet.
