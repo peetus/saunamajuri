@@ -156,11 +156,14 @@ the stack.
 ```bash
 npm ci
 npx cdk bootstrap                     # once per account and region
-ALERT_EMAIL=you@example.com npx cdk deploy
+ALERT_EMAIL=you@example.com GITHUB_REPO=you/saunamajuri npx cdk deploy
 ```
 
-`ALERT_EMAIL` is required and has no default — the deploy fails without it
-rather than falling back to an address baked into the source. **Confirm the
+Both variables are required and neither has a default, so the deploy fails
+rather than falling back. `ALERT_EMAIL` would otherwise bake an address into the
+source. `GITHUB_REPO` scopes the trust policy of the role GitHub Actions
+assumes, and a wrong value there is a real permission granted to a real
+repository, so it is named explicitly rather than guessed. **Confirm the
 subscription**: AWS sends a confirmation link to that address and delivers
 nothing until it is clicked. Check the spam folder.
 
@@ -173,6 +176,24 @@ aws cloudformation describe-stacks --stack-name SaunamajuriStack \
 ```
 
 `npx cdk destroy` removes everything, including the table and the logs.
+
+## Continuous deployment
+
+`.github/workflows/deploy.yml` runs `npm run check` and then `cdk deploy` on
+every push to `main`. It holds no AWS credentials. GitHub mints a short-lived
+OIDC token, AWS validates it against the deploy role's trust policy, and returns
+credentials that expire within the hour. A leaked access key stored as a repo
+secret would stay valid until somebody noticed.
+
+The trust policy is scoped through a condition on the token's `sub` claim, and it
+names a branch rather than a repository: `repo:<owner>/<repo>:ref:refs/heads/main`.
+Without the condition the role would accept a token from any repository on
+GitHub. With only the repository named it would accept one from any ref in it,
+which would make branch protection on `main` beside the point.
+
+Two repository secrets are needed: `AWS_DEPLOY_ROLE_ARN`, from the stack's
+`DeployRoleArn` output, and `ALERT_EMAIL`. The role must exist before the
+workflow can assume it, so the first deploy is from a laptop.
 
 ## Development
 

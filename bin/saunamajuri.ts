@@ -16,12 +16,26 @@ if (alertEmail === undefined || alertEmail === "") {
   );
 }
 
+// Supplied rather than hardcoded so the workflow can pass github.repository and
+// the trust policy always names the repository it is actually running in.
+const githubRepo = process.env.GITHUB_REPO;
+if (githubRepo === undefined || githubRepo === "") {
+  throw new Error(
+    [
+      "GITHUB_REPO is not set.",
+      "Deploy with: GITHUB_REPO=you/saunamajuri npx cdk deploy",
+      "It scopes the deploy role's trust policy, so a wrong value is a real permission.",
+    ].join(" "),
+  );
+}
+
 // Pinned to the account and region of the current CLI profile rather than left
 // environment-agnostic. An agnostic stack cannot do context lookups, and a
 // misconfigured CLI region would otherwise deploy a second copy somewhere else
 // without complaining.
 new SaunamajuriStack(app, "SaunamajuriStack", {
   alertEmail,
+  githubRepo,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,

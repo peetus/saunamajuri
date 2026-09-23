@@ -15,6 +15,8 @@ import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 export interface SaunamajuriStackProps extends cdk.StackProps {
   /** Address that receives price alerts. Supplied at deploy time via ALERT_EMAIL. */
   alertEmail: string;
+  /** The `owner/repo` allowed to assume the deploy role. Supplied via GITHUB_REPO. */
+  githubRepo: string;
 }
 
 export class SaunamajuriStack extends cdk.Stack {
@@ -122,6 +124,37 @@ export class SaunamajuriStack extends cdk.Stack {
     const stage = httpApi.defaultStage.node.defaultChild as apigw.CfnStage;
     stage.defaultRouteSettings = { throttlingRateLimit: 10, throttlingBurstLimit: 20 };
 
+    // GitHub Actions presents a short-lived OIDC token instead of an access key,
+    // so no long-lived AWS credential exists to leak from the repository.
+    const github = new iam.OpenIdConnectProvider(this, "GithubOidc", {
+      url: "https://token.actions.githubusercontent.com",
+      clientIds: ["sts.amazonaws.com"],
+    });
+
+    const deployRole = new iam.Role(this, "GithubDeployRole", {
+      // The sub condition is the whole security boundary, and it names a branch
+      // rather than the repository. Scoped to the repository alone it would
+      // accept a token from any ref in it, so pushing a side branch would be
+      // enough to deploy and branch protection on main would not apply.
+      assumedBy: new iam.OpenIdConnectPrincipal(github, {
+        StringEquals: {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": `repo:${props.githubRepo}:ref:refs/heads/main`,
+        },
+      }),
+      description: "Assumed by GitHub Actions to run cdk deploy",
+    });
+
+    // The bootstrap roles hold the deployment permissions, so this role needs
+    // only the right to assume them rather than any power over the stack itself.
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["sts:AssumeRole"],
+        resources: [`arn:aws:iam::${this.account}:role/cdk-*`],
+      }),
+    );
+
+    new cdk.CfnOutput(this, "DeployRoleArn", { value: deployRole.roleArn });
     new cdk.CfnOutput(this, "ApiUrl", { value: httpApi.apiEndpoint });
     new cdk.CfnOutput(this, "TableName", { value: table.tableName });
     new cdk.CfnOutput(this, "CollectorName", { value: collector.functionName });

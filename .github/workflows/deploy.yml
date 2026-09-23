@@ -1,0 +1,39 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+
+      # The same check the pre-commit hook runs. CI repeats it because the hook
+      # is local and --no-verify skips it.
+      - run: npm run check
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-north-1
+
+      # cdk deploy prints the stack outputs, including the API URL, into this
+      # log. The log is private while the repository is. Suppress the outputs
+      # or close the open write route before making the repository public.
+      - run: npx cdk deploy --require-approval never
+        env:
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          GITHUB_REPO: ${{ github.repository }}

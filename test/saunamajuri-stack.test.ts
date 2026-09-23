@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, expect, it } from "vitest";
 import { SaunamajuriStack } from "../lib/saunamajuri-stack.js";
 
@@ -13,6 +13,7 @@ function synth(): Template {
     // A literal address: the snapshot is committed.
     const stack = new SaunamajuriStack(app, "TestStack", {
       alertEmail: "test@example.com",
+      githubRepo: "example-owner/saunamajuri",
       env: { account: "123456789012", region: "eu-north-1" },
     });
     template = Template.fromStack(stack);
@@ -25,6 +26,57 @@ function synth(): Template {
 beforeAll(() => {
   synth();
 }, 30_000);
+
+/** The trust policy of the role GitHub Actions assumes. */
+function deployRoleTrust(): { Condition?: Record<string, Record<string, string>> } {
+  const roles = Object.values(synth().findResources("AWS::IAM::Role"));
+  const statements = roles.flatMap(
+    (role) =>
+      (role.Properties?.AssumeRolePolicyDocument as { Statement: Record<string, unknown>[] } | undefined)?.Statement ??
+      [],
+  );
+  const federated = statements.filter((statement) => statement.Action === "sts:AssumeRoleWithWebIdentity");
+
+  expect(federated).toHaveLength(1);
+  return federated[0];
+}
+
+it("lets only this repository's main branch assume the deploy role", () => {
+  const sub = deployRoleTrust().Condition?.StringEquals?.["token.actions.githubusercontent.com:sub"];
+
+  expect(sub).toBe("repo:example-owner/saunamajuri:ref:refs/heads/main");
+});
+
+// A token minted for a different audience is a token minted for somebody else.
+it("pins the token audience", () => {
+  const aud = deployRoleTrust().Condition?.StringEquals?.["token.actions.githubusercontent.com:aud"];
+
+  expect(aud).toBe("sts.amazonaws.com");
+});
+
+// A shape rather than a value, because the assertion above would still pass if
+// a wildcard were introduced on both sides. Nothing in a sub condition should
+// ever be a wildcard: each one widens the set of tokens AWS will accept.
+it("never accepts a wildcard anywhere in the sub claim", () => {
+  const conditions = deployRoleTrust().Condition ?? {};
+  const subs = Object.values(conditions)
+    .map((operator) => operator["token.actions.githubusercontent.com:sub"])
+    .filter((value) => value !== undefined);
+
+  expect(subs).toHaveLength(1);
+  expect(subs[0]).not.toContain("*");
+  expect(subs[0]).toMatch(/^repo:[^:]+\/[^:]+:ref:refs\/heads\/\S+$/);
+});
+
+it("gives the deploy role nothing but the bootstrap roles", () => {
+  synth().hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({ Action: "sts:AssumeRole", Resource: Match.stringLikeRegexp("^arn:aws:iam::.*:role/cdk-") }),
+      ]),
+    },
+  });
+});
 
 it("keeps log retention at 7 days", () => {
   synth().hasResourceProperties("AWS::Logs::LogGroup", { RetentionInDays: 7 });
