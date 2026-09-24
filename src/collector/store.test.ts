@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { createDynamoNotificationLog, createDynamoPriceStore } from "./store.js";
-import { type PriceSlot, type Window } from "../rules/types.js";
+import { type PriceSlot, type Span } from "../rules/types.js";
 
 const NOW = new Date("2026-09-21T00:00:00.000Z");
 const TABLE = "prices";
@@ -141,36 +141,47 @@ describe("createDynamoPriceStore", () => {
 });
 
 describe("createDynamoNotificationLog", () => {
-  const WINDOW: Window = {
-    startDate: "2026-09-21T22:00:00.000Z",
-    endDate: "2026-09-22T00:00:00.000Z",
-    averagePrice: 1.5,
+  const SPAN: Span = {
+    firstStart: "2026-09-21T22:00:00.000Z",
+    lastStart: "2026-09-21T23:00:00.000Z",
+    endDate: "2026-09-22T01:00:00.000Z",
+    cheapestPrice: 1.5,
+    dearestPrice: 2.5,
   };
 
-  it("reports no windows when nothing has been sent", async () => {
+  it("reports no spans when nothing has been sent", async () => {
     const { client } = fakeClient([{}]);
 
-    await expect(createDynamoNotificationLog({ client, tableName: TABLE }).notifiedWindows("sauna")).resolves.toEqual(
-      [],
-    );
+    await expect(createDynamoNotificationLog({ client, tableName: TABLE }).notifiedSpans("sauna")).resolves.toEqual([]);
   });
 
   // The caller compares by overlap, so the stored end matters as much as the
-  // start. Returning only the key would make every stored window zero-length.
-  it("returns each stored window with its end and price", async () => {
+  // start. Returning only the key would make every stored span zero-length.
+  it("returns each stored span whole, not just its key", async () => {
     const { client } = fakeClient([
-      { Items: [{ pk: "NOTIF#sauna", sk: WINDOW.startDate, endDate: WINDOW.endDate, averagePrice: 1.5 }] },
+      {
+        Items: [
+          {
+            pk: "NOTIF#sauna",
+            sk: SPAN.firstStart,
+            lastStart: SPAN.lastStart,
+            endDate: SPAN.endDate,
+            cheapestPrice: 1.5,
+            dearestPrice: 2.5,
+          },
+        ],
+      },
     ]);
 
-    await expect(createDynamoNotificationLog({ client, tableName: TABLE }).notifiedWindows("sauna")).resolves.toEqual([
-      WINDOW,
+    await expect(createDynamoNotificationLog({ client, tableName: TABLE }).notifiedSpans("sauna")).resolves.toEqual([
+      SPAN,
     ]);
   });
 
   // A stale read here sends the duplicate the markers exist to prevent.
   it("reads the rule's markers consistently", async () => {
     const { client, calls } = fakeClient([{}]);
-    await createDynamoNotificationLog({ client, tableName: TABLE }).notifiedWindows("sauna");
+    await createDynamoNotificationLog({ client, tableName: TABLE }).notifiedSpans("sauna");
 
     expect(calls[0]).toEqual({
       TableName: TABLE,
@@ -186,8 +197,8 @@ describe("createDynamoNotificationLog", () => {
     const { client, calls } = fakeClient([{}, {}]);
     const log = createDynamoNotificationLog({ client, tableName: TABLE });
 
-    await log.notifiedWindows("sauna");
-    await log.notifiedWindows("laundry");
+    await log.notifiedSpans("sauna");
+    await log.notifiedSpans("laundry");
 
     expect(
       calls.map((input) => (input as { ExpressionAttributeValues: Record<string, string> }).ExpressionAttributeValues),
@@ -196,15 +207,17 @@ describe("createDynamoNotificationLog", () => {
 
   it("writes a marker with its end time and a seven-day TTL from the injected clock", async () => {
     const { client, calls } = fakeClient();
-    await createDynamoNotificationLog({ client, tableName: TABLE }).markNotified("sauna", WINDOW, NOW);
+    await createDynamoNotificationLog({ client, tableName: TABLE }).markNotified("sauna", SPAN, NOW);
 
     expect(calls[0]).toEqual({
       TableName: TABLE,
       Item: {
         pk: "NOTIF#sauna",
-        sk: WINDOW.startDate,
-        endDate: WINDOW.endDate,
-        averagePrice: 1.5,
+        sk: SPAN.firstStart,
+        lastStart: SPAN.lastStart,
+        endDate: SPAN.endDate,
+        cheapestPrice: 1.5,
+        dearestPrice: 2.5,
         ttl: Math.floor(NOW.getTime() / 1000) + 7 * 24 * 60 * 60,
       },
     });

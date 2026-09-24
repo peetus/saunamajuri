@@ -1,4 +1,4 @@
-import { findCheapestWindow } from "../rules/find-window.js";
+import { findQualifyingSpans } from "../rules/find-spans.js";
 import { overlaps } from "../rules/overlap.js";
 import { type PriceSlot } from "../rules/types.js";
 import { type Alert, type Notifier } from "./notify.js";
@@ -43,26 +43,27 @@ export function createCollector({ fetchPrices, store, notifications, notifier, r
     const pending: Alert[] = [];
 
     for (const rule of configured) {
-      const window = findCheapestWindow(slots, rule, runAt);
-      if (window === null) {
-        continue;
-      }
       // By overlap, not by start time: the lead-time cutoff advances every run,
       // so the same trough is reported one slot later each hour.
-      const alreadySent = await notifications.notifiedWindows(rule.id);
-      if (alreadySent.some((sent) => overlaps(sent, window))) {
-        continue;
+      const alreadySent = await notifications.notifiedSpans(rule.id);
+
+      for (const span of findQualifyingSpans(slots, rule, runAt)) {
+        if (alreadySent.some((sent) => overlaps(sent, span))) {
+          continue;
+        }
+        pending.push({ rule, span });
       }
-      pending.push({ rule, window });
     }
 
     if (pending.length > 0) {
       await notifier.sendAlerts(pending);
 
       // After the send, so a failed send retries next run rather than going silent.
-      for (const { rule, window } of pending) {
-        await notifications.markNotified(rule.id, window, runAt);
-        alerted.push(rule.id);
+      for (const { rule, span } of pending) {
+        await notifications.markNotified(rule.id, span, runAt);
+        if (!alerted.includes(rule.id)) {
+          alerted.push(rule.id);
+        }
       }
     }
 

@@ -11,6 +11,29 @@ survives exactly as long as nobody is in a hurry, and the cost of the rule is on
 fails the build on an `@aws-sdk` import under `src/rules/`, and on `new Date()` or `Date.now()`
 there.
 
+## What an alert names, revised
+
+The engine originally reported one window per rule: the cheapest run of slots that satisfied it.
+That is the wrong unit, and the reason is behavioural rather than technical. A rule is usually
+satisfiable for hours either side of its cheapest moment, and an email naming a single two-hour
+slot reads as the only time the appliance may be run. Since the cheapest stretch is normally
+overnight, the effect was to keep proposing hours nobody would choose while saying nothing about
+the usable evening around them.
+
+It now reports every **span**: a contiguous range of start times, each of which satisfies the rule.
+The message is "start any time between 16:00 and 23:00" rather than "run it at 22:45", and the
+guarantee is that a run beginning anywhere in that range averages within the ceiling.
+
+The definition matters, because the obvious one is wrong. Taking the longest contiguous stretch
+whose overall average is under the ceiling would admit spans containing runs that are over it, so a
+reader starting at the wrong moment inside the span would pay more than they agreed to. The engine
+therefore merges qualifying **starts**, not slots: a start qualifies when the run beginning there
+is within the ceiling, and adjacent qualifying starts become one span. The promise then holds at
+every point in the range by construction.
+
+Spans are ordered by time rather than by price, for the same reason the change was made: ranking by
+price puts the overnight span first and buries the one at a usable hour beneath it.
+
 Windows that have already been emailed about are recorded as markers in the same table, and a
 candidate is compared against them by overlap rather than by start time. Equality is the obvious
 implementation and it is wrong: the engine ignores slots inside a rule's lead time, so as the

@@ -28,10 +28,17 @@ twelve hours from now. The lead time is what makes the alert useful rather than
 merely true — being told that power is cheap in ten minutes is not something you
 can act on.
 
-When a rule is satisfied, the cheapest qualifying window is emailed. Every rule
-satisfied in the same run shares one email, so three appliances do not mean
-three messages. A window already reported is not reported again, even as it
-drifts forward with each run.
+When a rule is satisfied, the email reports **every stretch during which it is
+satisfiable**, as a range of start times: _start any time between 16:00 and
+23:00_. Reporting only the cheapest two hours reads as the only time the
+appliance may be run, and since the cheapest stretch is usually overnight, that
+tends to name an hour nobody would choose. The guarantee is that a run beginning
+anywhere in the range averages at or under the ceiling.
+
+Spans are listed in time order rather than by price, so a usable hour is not
+buried under a cheaper one at 03:00. Every rule satisfied in the same run shares
+one email, so three appliances do not mean three messages, and a stretch already
+reported is not reported again.
 
 ## Architecture
 

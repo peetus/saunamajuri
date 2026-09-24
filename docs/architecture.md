@@ -22,10 +22,10 @@ EventBridge  ─▶  Collector Lambda
                     │                                            (store.ts)
                     ├─▶ Query USER#me / RULE#                    (rule-store.ts)
                     │
-                    ├─▶ findCheapestWindow per rule              (rules/find-window.ts)
-                    │      filter by lead time, slide, rank by average
+                    ├─▶ findQualifyingSpans per rule             (rules/find-spans.ts)
+                    │      filter by lead time, slide, merge adjacent starts
                     │
-                    ├─▶ Query NOTIF#<rule>, skip on overlap      (rules/overlap.ts)
+                    ├─▶ Query NOTIF#<rule>, skip spans that overlap (rules/overlap.ts)
                     │
                     ├─▶ Publish once, covering every rule        (notify.ts)
                     └─▶ PutItem NOTIF#<rule> per rule reported

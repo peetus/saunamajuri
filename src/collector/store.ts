@@ -1,5 +1,5 @@
 import { BatchWriteCommand, PutCommand, QueryCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { type PriceSlot, type Window } from "../rules/types.js";
+import { type PriceSlot, type Span } from "../rules/types.js";
 import { helsinkiDate } from "../time.js";
 
 // Price slots are worthless once they are in the past, and TTL keeps the table
@@ -26,10 +26,10 @@ export interface PriceStore {
 
 /** Remembers which windows have already been emailed about, per rule. */
 export interface NotificationLog {
-  /** Windows this rule has already alerted on, within the markers' lifetime. */
-  notifiedWindows(ruleId: string): Promise<Window[]>;
-  /** Records that an alert went out, with the window it covered. */
-  markNotified(ruleId: string, window: Window, now: Date): Promise<void>;
+  /** Spans this rule has already alerted on, within the markers' lifetime. */
+  notifiedSpans(ruleId: string): Promise<Span[]>;
+  /** Records that an alert went out, with the span it covered. */
+  markNotified(ruleId: string, span: Span, now: Date): Promise<void>;
 }
 
 export interface DynamoStoreDeps {
@@ -99,7 +99,7 @@ async function writeBatch(
 
 export function createDynamoNotificationLog({ client, tableName }: DynamoStoreDeps): NotificationLog {
   return {
-    async notifiedWindows(ruleId: string): Promise<Window[]> {
+    async notifiedSpans(ruleId: string): Promise<Span[]> {
       const result = await client.send(
         new QueryCommand({
           TableName: tableName,
@@ -112,21 +112,25 @@ export function createDynamoNotificationLog({ client, tableName }: DynamoStoreDe
       );
 
       return (result.Items ?? []).map((item) => ({
-        startDate: item.sk as string,
+        firstStart: item.sk as string,
+        lastStart: item.lastStart as string,
         endDate: item.endDate as string,
-        averagePrice: item.averagePrice as number,
+        cheapestPrice: item.cheapestPrice as number,
+        dearestPrice: item.dearestPrice as number,
       }));
     },
 
-    async markNotified(ruleId: string, window: Window, now: Date): Promise<void> {
+    async markNotified(ruleId: string, span: Span, now: Date): Promise<void> {
       await client.send(
         new PutCommand({
           TableName: tableName,
           Item: {
             pk: `NOTIF#${ruleId}`,
-            sk: window.startDate,
-            endDate: window.endDate,
-            averagePrice: window.averagePrice,
+            sk: span.firstStart,
+            lastStart: span.lastStart,
+            endDate: span.endDate,
+            cheapestPrice: span.cheapestPrice,
+            dearestPrice: span.dearestPrice,
             ttl: Math.floor(now.getTime() / 1000) + NOTIFICATION_TTL_SECONDS,
           },
         }),

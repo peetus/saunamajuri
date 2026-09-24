@@ -155,9 +155,10 @@ describe("the collector, wired to its real collaborators", () => {
     expect(result.alerted).toEqual(["sauna"]);
     expect(published).toHaveLength(1);
     expect(published[0].Subject).toBe("Saunamajuri: sauna from 1.50 c/kWh");
-    // 00:00Z is 03:00 in Helsinki, and the window is the first two hours of the
-    // trough - the earliest of several equally cheap runs.
-    expect(published[0].Message).toContain("03.00 - ti 05.00");
+    // 00:00Z is 03:00 in Helsinki, and this trough is wide enough that the
+    // start range is a range rather than collapsing to a single instant.
+    expect(published[0].Message).toContain("start ti 03.00 - ti 04.15");
+    expect(published[0].Message).toContain("1.50-2.44");
   });
 
   // The user story behind batching: at 1 c/kWh everything qualifies at once,

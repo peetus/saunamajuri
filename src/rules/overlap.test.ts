@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { overlaps } from "./overlap.js";
-import { type Window } from "./types.js";
+import { type Span } from "./types.js";
 
-function window(startHour: number, endHour: number): Window {
+function window(startHour: number, endHour: number): Span {
   const at = (hour: number): string => `2026-09-22T${String(hour).padStart(2, "0")}:00:00.000Z`;
-  return { startDate: at(startHour), endDate: at(endHour), averagePrice: 1 };
+  return {
+    firstStart: at(startHour),
+    lastStart: at(startHour),
+    endDate: at(endHour),
+    cheapestPrice: 1,
+    dearestPrice: 1,
+  };
 }
 
 describe("overlaps", () => {

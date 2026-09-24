@@ -1,5 +1,5 @@
 import { PublishCommand, type SNSClient } from "@aws-sdk/client-sns";
-import { type Rule, type Window } from "../rules/types.js";
+import { type Rule, type Span } from "../rules/types.js";
 
 // The only place that leaves UTC: this text is read by a human.
 const helsinkiTime = new Intl.DateTimeFormat("fi-FI", {
@@ -14,14 +14,14 @@ const helsinkiTime = new Intl.DateTimeFormat("fi-FI", {
 // length that is unambiguously accepted rather than the documented figure.
 const SUBJECT_LIMIT = 99;
 
-/** One rule and the window that satisfied it. */
+/** One rule and one stretch during which it is satisfiable. */
 export interface Alert {
   rule: Rule;
-  window: Window;
+  span: Span;
 }
 
 export interface Notifier {
-  /** Sends one message covering every window found this run. */
+  /** Sends one message covering every span found this run. */
   sendAlerts(alerts: Alert[]): Promise<void>;
 }
 
@@ -30,8 +30,33 @@ export interface SnsNotifierDeps {
   topicArn: string;
 }
 
-function price(alert: Alert): string {
-  return alert.window.averagePrice.toFixed(2);
+function at(instant: string): string {
+  return helsinkiTime.format(new Date(instant));
+}
+
+function money(value: number): string {
+  return value.toFixed(2);
+}
+
+/** A single figure when every start in the span costs the same, a range otherwise. */
+function priceRange(span: Span): string {
+  return span.cheapestPrice === span.dearestPrice
+    ? money(span.cheapestPrice)
+    : `${money(span.cheapestPrice)}-${money(span.dearestPrice)}`;
+}
+
+function runLength(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) {
+    return `${String(rest)}min`;
+  }
+  return rest === 0 ? `${String(hours)}h` : `${String(hours)}h ${String(rest)}min`;
+}
+
+/** Rule ids in the order they first appear, each listed once. */
+function ruleOrder(alerts: Alert[]): string[] {
+  return [...new Set(alerts.map((alert) => alert.rule.id))];
 }
 
 /**
@@ -41,24 +66,34 @@ function price(alert: Alert): string {
  * overlong subject is rejected rather than truncated.
  */
 function subject(alerts: Alert[]): string {
-  const cheapest = alerts.reduce((a, b) => (a.window.averagePrice <= b.window.averagePrice ? a : b));
-  const suffix = `from ${price(cheapest)} c/kWh`;
-  const named = `Saunamajuri: ${alerts.map((alert) => alert.rule.id).join(", ")} ${suffix}`;
+  const cheapest = Math.min(...alerts.map((alert) => alert.span.cheapestPrice));
+  const suffix = `from ${money(cheapest)} c/kWh`;
+  const ids = ruleOrder(alerts);
+  const named = `Saunamajuri: ${ids.join(", ")} ${suffix}`;
   if (named.length <= SUBJECT_LIMIT) {
     return named;
   }
-  return `Saunamajuri: ${String(alerts.length)} cheap windows ${suffix}`.slice(0, SUBJECT_LIMIT);
+  return `Saunamajuri: ${String(ids.length)} cheap windows ${suffix}`.slice(0, SUBJECT_LIMIT);
 }
 
+/**
+ * One block per rule, listing every stretch it may be run in.
+ *
+ * The start range is what the reader acts on, so it leads. The run length is
+ * stated once per rule rather than an end time per span, because the end is
+ * whatever the chosen start plus that length comes to.
+ */
 function body(alerts: Alert[]): string {
-  return alerts
-    .map(({ rule, window }) =>
-      [
-        rule.id,
-        `${helsinkiTime.format(new Date(window.startDate))} - ${helsinkiTime.format(new Date(window.endDate))}`,
-        `Average ${price({ rule, window })} c/kWh (your limit is ${String(rule.maxAveragePrice)})`,
-      ].join("\n"),
-    )
+  return ruleOrder(alerts)
+    .map((id) => {
+      const mine = alerts.filter((alert) => alert.rule.id === id);
+      const { rule } = mine[0];
+      const heading = `${id} - ${runLength(rule.durationMinutes)} run, your limit is ${String(rule.maxAveragePrice)} c/kWh`;
+      const lines = mine.map(
+        ({ span }) => `  start ${at(span.firstStart)} - ${at(span.lastStart)}   ${priceRange(span)} c/kWh`,
+      );
+      return [heading, ...lines].join("\n");
+    })
     .join("\n\n");
 }
 

@@ -41,7 +41,7 @@ One appliance's requirements, stored per user and editable over the API:
 | -------------------- | --------------------------------------------------------------- |
 | `id`                 | Stable name, e.g. `sauna`. Lowercase slug, up to 32 characters. |
 | `durationMinutes`    | Contiguous minutes of cheap power the appliance needs.          |
-| `maxAveragePrice`    | Ceiling, in c/kWh, on the window's average.                     |
+| `maxAveragePrice`    | Ceiling, in c/kWh, on the average across a run.                 |
 | `minLeadTimeMinutes` | How far ahead a window must start to be worth reporting.        |
 
 ## Ceiling
@@ -59,9 +59,9 @@ act on is not useful — being told that power is cheap in ten minutes is noise.
 It is per-rule because the right value differs by appliance: a sauna is planned
 around, a dishwasher is switched on.
 
-The consequence is worth knowing. The engine filters by lead time **before**
-ranking by price, so the window it reports is the cheapest _eligible_ one, which
-is not always the cheapest one that exists.
+The consequence is worth knowing. The engine discards everything inside the lead
+time **before** looking at price, so a cheaper stretch that is too close to now
+is never reported.
 
 ## Marker
 

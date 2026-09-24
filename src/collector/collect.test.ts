@@ -3,7 +3,7 @@ import { createCollector, type CollectorResult } from "./collect.js";
 import { type Notifier } from "./notify.js";
 import { type RuleStore } from "./rule-store.js";
 import { type NotificationLog, type PriceStore } from "./store.js";
-import { type PriceSlot, type Rule, type Window } from "../rules/types.js";
+import { type PriceSlot, type Rule, type Span } from "../rules/types.js";
 
 const NOW = new Date("2026-09-21T00:00:00.000Z");
 
@@ -36,7 +36,7 @@ interface Options {
 }
 
 /** One publish. The outer array is emails sent, the inner one their contents. */
-type SentBatch = { ruleId: string; window: Window }[];
+type SentBatch = { ruleId: string; span: Span }[];
 
 interface Harness {
   collect: () => Promise<CollectorResult>;
@@ -64,21 +64,23 @@ function harness(options: Options = {}): Harness {
     },
   };
 
-  const wholeDay: Window = {
-    startDate: "2026-09-21T00:00:00.000Z",
+  const wholeDay: Span = {
+    firstStart: "2026-09-21T00:00:00.000Z",
+    lastStart: "2026-09-21T00:00:00.000Z",
     endDate: "2026-09-22T00:00:00.000Z",
-    averagePrice: 1,
+    cheapestPrice: 1,
+    dearestPrice: 1,
   };
 
   const notifications: NotificationLog = {
-    notifiedWindows: (ruleId) =>
+    notifiedSpans: (ruleId) =>
       fail("lookup") ?? Promise.resolve((options.notified ?? []).includes(ruleId) ? [wholeDay] : []),
-    markNotified: (ruleId, window) => {
+    markNotified: (ruleId, span) => {
       const failed = fail("mark");
       if (failed !== null) {
         return failed;
       }
-      marked.push(`${ruleId}@${window.startDate}`);
+      marked.push(`${ruleId}@${span.firstStart}`);
       return Promise.resolve();
     },
   };
@@ -89,7 +91,7 @@ function harness(options: Options = {}): Harness {
       if (failed !== null) {
         return failed;
       }
-      sent.push(alerts.map(({ rule, window }) => ({ ruleId: rule.id, window })));
+      sent.push(alerts.map(({ rule, span }) => ({ ruleId: rule.id, span })));
       return Promise.resolve();
     },
   };
@@ -123,7 +125,13 @@ describe("createCollector", () => {
       [
         {
           ruleId: "sauna",
-          window: { startDate: "2026-09-21T01:00:00.000Z", endDate: "2026-09-21T01:30:00.000Z", averagePrice: 1 },
+          span: {
+            firstStart: "2026-09-21T01:00:00.000Z",
+            lastStart: "2026-09-21T01:00:00.000Z",
+            endDate: "2026-09-21T01:30:00.000Z",
+            cheapestPrice: 1,
+            dearestPrice: 1,
+          },
         },
       ],
     ]);
@@ -258,17 +266,19 @@ describe("createCollector", () => {
   // The lead-time cutoff advances every run, so the same trough is reported one
   // slot later each hour. Comparing starts for equality would re-alert on it.
   it("suppresses a window that merely slid forward inside a known trough", async () => {
-    const sentAlready: Window = {
-      startDate: "2026-09-21T00:45:00.000Z",
+    const sentAlready: Span = {
+      firstStart: "2026-09-21T00:45:00.000Z",
+      lastStart: "2026-09-21T00:45:00.000Z",
       endDate: "2026-09-21T01:15:00.000Z",
-      averagePrice: 1,
+      cheapestPrice: 1,
+      dearestPrice: 1,
     };
 
     const collect = createCollector({
       fetchPrices: () => Promise.resolve(slots(1)),
       store: { putPrices: () => Promise.resolve() },
       notifications: {
-        notifiedWindows: () => Promise.resolve([sentAlready]),
+        notifiedSpans: () => Promise.resolve([sentAlready]),
         markNotified: () => Promise.resolve(),
       },
       notifier: { sendAlerts: () => Promise.reject(new Error("should not send")) },

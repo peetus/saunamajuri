@@ -25,9 +25,29 @@ export interface Rule {
   minLeadTimeMinutes: number;
 }
 
-/** A contiguous run of slots that satisfies a rule. */
+/** One possible run: a contiguous stretch of slots long enough for a rule. */
 export interface Window {
   startDate: IsoDateString;
   endDate: IsoDateString;
   averagePrice: number;
+}
+
+/**
+ * A contiguous range of start times, every one of which satisfies the rule.
+ *
+ * The guarantee: a run beginning anywhere from `firstStart` to `lastStart`
+ * averages at or under the rule's ceiling. See `docs/adr/0003` for why this is
+ * reported rather than a single window.
+ */
+export interface Span {
+  /** Earliest slot the appliance may start at. */
+  firstStart: IsoDateString;
+  /** Latest slot it may start at and still be covered. */
+  lastStart: IsoDateString;
+  /** When a run beginning at `lastStart` finishes. */
+  endDate: IsoDateString;
+  /** Average across the cheapest qualifying start. */
+  cheapestPrice: number;
+  /** Average across the dearest qualifying start. */
+  dearestPrice: number;
 }

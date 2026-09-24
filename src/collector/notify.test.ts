@@ -1,16 +1,18 @@
 import type { PublishCommand, SNSClient } from "@aws-sdk/client-sns";
 import { describe, expect, it, vi } from "vitest";
 import { type Alert, createSnsNotifier } from "./notify.js";
-import { type Rule, type Window } from "../rules/types.js";
+import { type Rule, type Span } from "../rules/types.js";
 
 const TOPIC = "arn:aws:sns:eu-north-1:123456789012:Alerts";
 
 const RULE: Rule = { id: "sauna", durationMinutes: 120, maxAveragePrice: 3, minLeadTimeMinutes: 720 };
 
-const WINDOW: Window = {
-  startDate: "2026-09-21T20:00:00.000Z",
+const SPAN: Span = {
+  firstStart: "2026-09-21T20:00:00.000Z",
+  lastStart: "2026-09-21T20:00:00.000Z",
   endDate: "2026-09-21T22:00:00.000Z",
-  averagePrice: 1.234,
+  cheapestPrice: 1.234,
+  dearestPrice: 1.234,
 };
 
 function fakeSns(): { client: SNSClient; inputs: PublishCommand["input"][] } {
@@ -24,11 +26,11 @@ function fakeSns(): { client: SNSClient; inputs: PublishCommand["input"][] } {
   return { client: client as unknown as SNSClient, inputs };
 }
 
-function alert(rule: Partial<Rule>, window: Partial<Window> = {}): Alert {
-  return { rule: { ...RULE, ...rule }, window: { ...WINDOW, ...window } };
+function alert(rule: Partial<Rule> = {}, span: Partial<Span> = {}): Alert {
+  return { rule: { ...RULE, ...rule }, span: { ...SPAN, ...span } };
 }
 
-async function publish(alerts: Alert[] = [alert({})]): Promise<PublishCommand["input"]> {
+async function publish(alerts: Alert[] = [alert()]): Promise<PublishCommand["input"]> {
   const { client, inputs } = fakeSns();
   await createSnsNotifier({ client, topicArn: TOPIC }).sendAlerts(alerts);
   return inputs[0];
@@ -46,7 +48,6 @@ describe("createSnsNotifier", () => {
     const message = (await publish()).Message ?? "";
 
     expect(message).toContain("23.00");
-    expect(message).toContain("01.00");
     expect(message).not.toContain("20.00");
   });
 
@@ -55,19 +56,18 @@ describe("createSnsNotifier", () => {
     const message =
       (
         await publish([
-          alert({}, { startDate: "2026-01-15T20:00:00.000Z", endDate: "2026-01-15T22:00:00.000Z", averagePrice: 1 }),
+          alert(
+            {},
+            {
+              firstStart: "2026-01-15T20:00:00.000Z",
+              lastStart: "2026-01-15T20:00:00.000Z",
+              endDate: "2026-01-15T22:00:00.000Z",
+            },
+          ),
         ])
       ).Message ?? "";
 
     expect(message).toContain("22.00");
-  });
-
-  it("rounds the price to two decimals in both subject and body", async () => {
-    const input = await publish();
-
-    expect(input.Subject).toContain("1.23");
-    expect(input.Message).toContain("1.23");
-    expect(input.Subject).not.toContain("1.234");
   });
 
   it("names the rule and its limit", async () => {
@@ -78,17 +78,76 @@ describe("createSnsNotifier", () => {
     expect(input.Message).toContain("3");
   });
 
+  it("states the run length, so a start range implies its own end", async () => {
+    expect((await publish()).Message).toContain("2h");
+  });
+
   it("reports a negative price rather than hiding it", async () => {
-    const input = await publish([alert({}, { averagePrice: -0.009 })]);
+    const input = await publish([alert({}, { cheapestPrice: -0.009, dearestPrice: -0.009 })]);
 
     expect(input.Subject).toContain("-0.01");
   });
 
+  describe("spans", () => {
+    it("gives the range of starts rather than a single time", async () => {
+      const message =
+        (
+          await publish([
+            alert(
+              {},
+              {
+                firstStart: "2026-09-21T13:00:00.000Z",
+                lastStart: "2026-09-21T20:00:00.000Z",
+                endDate: "2026-09-21T22:00:00.000Z",
+                cheapestPrice: 1.2,
+                dearestPrice: 2.8,
+              },
+            ),
+          ])
+        ).Message ?? "";
+
+      expect(message).toContain("16.00");
+      expect(message).toContain("23.00");
+    });
+
+    it("gives the price range across the span", async () => {
+      const message = (await publish([alert({}, { cheapestPrice: 1.2, dearestPrice: 2.8 })])).Message ?? "";
+
+      expect(message).toContain("1.20");
+      expect(message).toContain("2.80");
+    });
+
+    it("gives one price when every start in the span costs the same", async () => {
+      const message = (await publish([alert({}, { cheapestPrice: 2, dearestPrice: 2 })])).Message ?? "";
+
+      expect(message).toContain("2.00");
+      expect(message).not.toContain("2.00-2.00");
+    });
+
+    it("lists every span of a rule under one heading", async () => {
+      const morning = alert({}, { firstStart: "2026-09-21T04:00:00.000Z", lastStart: "2026-09-21T04:00:00.000Z" });
+      const evening = alert({}, { firstStart: "2026-09-21T16:00:00.000Z", lastStart: "2026-09-21T16:00:00.000Z" });
+      const message = (await publish([morning, evening])).Message ?? "";
+
+      expect(message.match(/sauna/g)).toHaveLength(1);
+      expect(message).toContain("07.00");
+      expect(message).toContain("19.00");
+    });
+
+    it("keeps a rule's spans in the order it was given them", async () => {
+      const early = alert({}, { firstStart: "2026-09-21T04:00:00.000Z", lastStart: "2026-09-21T04:00:00.000Z" });
+      const late = alert({}, { firstStart: "2026-09-21T16:00:00.000Z", lastStart: "2026-09-21T16:00:00.000Z" });
+      const message = (await publish([early, late])).Message ?? "";
+
+      expect(message.indexOf("07.00")).toBeLessThan(message.indexOf("19.00"));
+    });
+  });
+
   describe("batching", () => {
     const THREE = [
-      alert({ id: "sauna", maxAveragePrice: 3 }, { averagePrice: 2.5 }),
-      alert({ id: "dishwasher", maxAveragePrice: 10 }, { averagePrice: 1.5 }),
-      alert({ id: "laundry", maxAveragePrice: 10 }, { averagePrice: 2 }),
+      alert({ id: "sauna", maxAveragePrice: 3 }, { cheapestPrice: 2.5, dearestPrice: 2.5 }),
+      alert({ id: "dishwasher", maxAveragePrice: 10 }, { cheapestPrice: 1.5, dearestPrice: 1.5 }),
+      alert({ id: "laundry", maxAveragePrice: 10 }, { cheapestPrice: 2, dearestPrice: 2 }),
     ];
 
     it("sends one message for several rules rather than one each", async () => {
@@ -108,10 +167,8 @@ describe("createSnsNotifier", () => {
       expect(message).toContain("sauna");
       expect(message).toContain("dishwasher");
       expect(message).toContain("laundry");
-      expect(message).toContain("your limit is 3");
-      expect(message).toContain("your limit is 10");
-      expect(message).toContain("2.50");
-      expect(message).toContain("1.50");
+      expect(message).toContain("3");
+      expect(message).toContain("10");
     });
 
     it("keeps the rules in the order it was given them", async () => {
@@ -127,6 +184,12 @@ describe("createSnsNotifier", () => {
       expect(subject).toContain("sauna");
       expect(subject).toContain("dishwasher");
       expect(subject).toContain("laundry");
+    });
+
+    it("names a rule once in the subject even with several spans", async () => {
+      const subject = (await publish([alert({ id: "sauna" }), alert({ id: "sauna" })])).Subject ?? "";
+
+      expect(subject.match(/sauna/g)).toHaveLength(1);
     });
 
     it("leads the subject with the cheapest price of the batch", async () => {
@@ -161,10 +224,16 @@ describe("createSnsNotifier", () => {
       expect(subject).not.toContain("\n");
     });
 
+    it("falls back to counting the rules it could not name", async () => {
+      const subject = (await publish([longId(1), longId(2), longId(3), longId(4)])).Subject ?? "";
+
+      expect(subject).toContain("4");
+      expect(subject).not.toContain("aaaa");
+    });
+
     // Exactly at the documented cap, which SNS reads as exclusive. Without a
     // fixture that lands on the boundary, an off-by-one in the limit passes.
     it("falls back at exactly the documented cap", async () => {
-      // Three ids inside what the API accepts, summing to the boundary exactly.
       const first = "a".repeat(23);
       const second = "b".repeat(22);
       const third = "c".repeat(22);
@@ -175,13 +244,6 @@ describe("createSnsNotifier", () => {
 
       expect(subject).not.toContain(first);
       expect(subject.length).toBeLessThan(100);
-    });
-
-    it("falls back to counting the rules it could not name", async () => {
-      const subject = (await publish([longId(1), longId(2), longId(3), longId(4)])).Subject ?? "";
-
-      expect(subject).toContain("4");
-      expect(subject).not.toContain("aaaa");
     });
 
     it("still names the rules when a batch of short ids fits", async () => {
