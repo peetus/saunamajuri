@@ -293,4 +293,4 @@ route was first left open, what that cost, and why it was closed this way.
 
 ## License
 
-None yet.
+[MIT](LICENSE).
