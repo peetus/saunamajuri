@@ -83,9 +83,10 @@ verification and a sandbox exit for the same result. A new subscription stays
 mail, which is worth knowing because that mail is often filed as spam.
 
 **API Gateway HTTP API** — cheaper and faster than a REST API, with fewer
-features. A single `{proxy+}` route reaches one Lambda that does its own routing,
-which trades per-route IAM and metrics for a handler testable without any AWS in
-the loop.
+features. One Lambda serves every route and does its own routing, so the handler
+is testable without any AWS in the loop, at the cost of per-route metrics. Reads
+arrive through a `GET /{proxy+}` catch-all; `PUT /rules` is a route of its own
+because it is the one that needs IAM authorization.
 
 **CloudWatch** — log groups are declared in the stack rather than left to Lambda
 to create, so retention is seven days from the start and `cdk destroy` takes the
@@ -103,6 +104,10 @@ One table, three item types:
 | Price slot  | `PRICE#<finnish day>` | `2026-09-24T18:45:00.000Z` |
 | Rule        | `USER#me`             | `RULE#sauna`               |
 | Sent marker | `NOTIF#sauna`         | `2026-09-24T20:00:00.000Z` |
+
+A rule item holds the whole rule as one `rule` map rather than an attribute per
+field. Nothing queries by a rule's fields, and a map is written and read back as
+the same object.
 
 The partition key for prices is the **Finnish** calendar day, not the UTC day.
 Finland is UTC+2, and UTC+3 under summer time, so a day boundary falls at 21:00Z

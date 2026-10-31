@@ -21,8 +21,8 @@ export interface CollectorResult {
 }
 
 /**
- * Builds the collector: fetch prices, store them, then alert per rule whose
- * cheapest qualifying window does not overlap one already emailed about.
+ * Builds the collector: fetch prices, store them, then alert on every span a
+ * rule allows that does not overlap one already emailed about.
  */
 export function createCollector({ fetchPrices, store, notifications, notifier, rules, now }: CollectorDeps) {
   return async function collect(): Promise<CollectorResult> {

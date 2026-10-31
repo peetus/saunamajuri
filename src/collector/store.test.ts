@@ -191,7 +191,7 @@ describe("createDynamoNotificationLog", () => {
     });
   });
 
-  // Two rules can legitimately alert on the same window, so the rule id has to
+  // Two rules can legitimately alert on the same span, so the rule id has to
   // be part of the key rather than only the timestamp.
   it("keys markers per rule, so one rule does not suppress another", async () => {
     const { client, calls } = fakeClient([{}, {}]);

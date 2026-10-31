@@ -138,7 +138,7 @@ describe("createCollector", () => {
     expect(marked).toEqual(["sauna@2026-09-21T01:00:00.000Z"]);
   });
 
-  it("does not alert again about a window that overlaps one already sent", async () => {
+  it("does not alert again about a span that overlaps one already sent", async () => {
     const { collect, sent, marked } = harness({ notified: ["sauna"] });
 
     expect(await collect()).toEqual({ stored: 2, alerted: [] });
@@ -214,7 +214,7 @@ describe("createCollector", () => {
     expect(await collect()).toEqual({ stored: 0, alerted: [] });
   });
 
-  it("does not mark a window as notified when the send fails", async () => {
+  it("does not mark a span as notified when the send fails", async () => {
     const { collect, marked } = harness({ failOn: "send" });
 
     await expect(collect()).rejects.toThrow("send failed");
@@ -265,7 +265,7 @@ describe("createCollector", () => {
 
   // The lead-time cutoff advances every run, so the same trough is reported one
   // slot later each hour. Comparing starts for equality would re-alert on it.
-  it("suppresses a window that merely slid forward inside a known trough", async () => {
+  it("suppresses a span that merely slid forward inside a known trough", async () => {
     const sentAlready: Span = {
       firstStart: "2026-09-21T00:45:00.000Z",
       lastStart: "2026-09-21T00:45:00.000Z",

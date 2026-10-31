@@ -39,12 +39,13 @@ function parseRule(body: string): Rule | null {
 
   const { id, durationMinutes, maxAveragePrice, minLeadTimeMinutes } = raw as Record<string, unknown>;
 
+  if (typeof id !== "string" || !RULE_ID.test(id)) {
+    return null;
+  }
+
   // Finite rather than merely a number: a NaN ceiling compares false against
   // every price, so the rule would never fire and would read as a silent
   // failure rather than input that was rejected.
-  if (typeof id !== "string" || !RULE_ID.test(id) || id.trim() !== id) {
-    return null;
-  }
   if (typeof durationMinutes !== "number" || !Number.isFinite(durationMinutes) || durationMinutes <= 0) {
     return null;
   }
@@ -58,13 +59,6 @@ function parseRule(body: string): Rule | null {
   return { id, durationMinutes, maxAveragePrice, minLeadTimeMinutes };
 }
 
-/**
- * Builds the API router.
- *
- * No web framework: API Gateway already routed the request, so matching on
- * method and path is the whole job. Express would mean cold-starting a router
- * to serve three routes.
- */
 export function createRouter({ rules, now }: RouterDeps): Router {
   return async function route(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
     const key = `${event.requestContext.http.method} ${event.rawPath}`;

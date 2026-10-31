@@ -195,8 +195,8 @@ describe("the collector, wired to its real collaborators", () => {
     expect(published[1].Message).not.toContain("dishwasher");
   });
 
-  // The clock must advance, or the window cannot slide and the case is empty.
-  it("sends nothing an hour later, when the window has slid inside the same trough", async () => {
+  // The clock must advance, or the span cannot slide and the case is empty.
+  it("sends nothing an hour later, when the span has slid inside the same trough", async () => {
     await build(table, published)();
     const second = await build(table, published, new Date("2026-09-21T13:00:00.000Z"))();
 

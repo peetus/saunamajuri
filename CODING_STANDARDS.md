@@ -8,11 +8,11 @@ the rule says which tool — `npm run check` runs the lot.
 Dependencies point inward. Enforced by `eslint.config.mjs`; `npm run lint` fails
 if a boundary is crossed.
 
-| Layer          | Path                         | May import                                           |
-| -------------- | ---------------------------- | ---------------------------------------------------- |
-| Domain         | `src/rules/`                 | Nothing but its own types. No AWS, no I/O, no clock. |
-| Adapters       | `src/collector/`, `src/api/` | Domain, AWS SDK, Node built-ins                      |
-| Infrastructure | `lib/`, `bin/`               | CDK only — never `src/`                              |
+| Layer          | Path                         | May import                                            |
+| -------------- | ---------------------------- | ----------------------------------------------------- |
+| Domain         | `src/rules/`                 | Nothing but its own types. No AWS, no I/O, no clock.  |
+| Adapters       | `src/collector/`, `src/api/` | Anything in `src/`, AWS SDK, Node built-ins. Not CDK. |
+| Infrastructure | `lib/`, `bin/`               | CDK only — never `src/`                               |
 
 `src/rules/` holds the logic worth owning: pure functions over plain data, tested
 in milliseconds without mocks. `new Date()` and `Date.now()` are lint errors

@@ -19,17 +19,10 @@ export interface Rule {
   id: string;
   /** Consecutive minutes of cheap power the appliance needs. */
   durationMinutes: number;
-  /** Maximum acceptable average price across the window, c/kWh. */
+  /** Maximum acceptable average price across a run, c/kWh. */
   maxAveragePrice: number;
-  /** Only notify about windows starting at least this far ahead. */
+  /** Only report starts at least this far ahead. */
   minLeadTimeMinutes: number;
-}
-
-/** One possible run: a contiguous stretch of slots long enough for a rule. */
-export interface Window {
-  startDate: IsoDateString;
-  endDate: IsoDateString;
-  averagePrice: number;
 }
 
 /**

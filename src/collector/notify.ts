@@ -1,13 +1,6 @@
 import { PublishCommand, type SNSClient } from "@aws-sdk/client-sns";
 import { type Rule, type Span } from "../rules/types.js";
-
-// The only place that leaves UTC: this text is read by a human.
-const helsinkiTime = new Intl.DateTimeFormat("fi-FI", {
-  timeZone: "Europe/Helsinki",
-  weekday: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-});
+import { helsinkiDateTime } from "../time.js";
 
 // SNS documents the subject cap as 100 characters and rejects newlines. A
 // rejected publish loses the whole batch for that run, so this is the last
@@ -31,7 +24,7 @@ export interface SnsNotifierDeps {
 }
 
 function at(instant: string): string {
-  return helsinkiTime.format(new Date(instant));
+  return helsinkiDateTime(new Date(instant));
 }
 
 function money(value: number): string {
@@ -73,7 +66,7 @@ function subject(alerts: Alert[]): string {
   if (named.length <= SUBJECT_LIMIT) {
     return named;
   }
-  return `Saunamajuri: ${String(ids.length)} cheap windows ${suffix}`.slice(0, SUBJECT_LIMIT);
+  return `Saunamajuri: ${String(ids.length)} rules ${suffix}`.slice(0, SUBJECT_LIMIT);
 }
 
 /**

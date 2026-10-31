@@ -28,8 +28,8 @@ export class SaunamajuriStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: SaunamajuriStackProps) {
     super(scope, id, props);
 
-    // pk/sk are generic because one table holds several item types: price slots
-    // and sent-notification markers today, user rules alongside them.
+    // pk/sk are generic because one table holds several item types: price
+    // slots, user rules and sent-notification markers.
     const table = new dynamodb.TableV2(this, "Table", {
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },

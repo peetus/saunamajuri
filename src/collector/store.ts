@@ -24,7 +24,7 @@ export interface PriceStore {
   putPrices(slots: PriceSlot[], now: Date): Promise<void>;
 }
 
-/** Remembers which windows have already been emailed about, per rule. */
+/** Remembers which spans have already been emailed about, per rule. */
 export interface NotificationLog {
   /** Spans this rule has already alerted on, within the markers' lifetime. */
   notifiedSpans(ruleId: string): Promise<Span[]>;
