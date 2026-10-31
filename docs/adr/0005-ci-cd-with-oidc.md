@@ -22,9 +22,12 @@ somebody else. The subject is pinned to one branch of one repository. Without th
 the role would accept a token from any repository on GitHub; scoped only as far as the repository it
 would accept one from any ref within it, so pushing any side branch would deploy.
 
-What the branch scoping buys depends on `main` being protected, which is a GitHub setting and is not
-established anywhere in this repository. It is worth stating rather than assuming: on its own, the
-condition means a side branch cannot deploy. It does not mean a review happened.
+What the branch scoping buys depends on `main` being protected. It is not, and on this account it
+cannot be: protected branches and rulesets are a paid feature for private repositories, and both
+APIs answer 403 with "Upgrade to GitHub Pro or make this repository public". So the condition means
+a side branch cannot deploy, and nothing more. It does not mean a review happened, and it does not
+stop a direct push to `main`. Worth stating plainly, because a trust policy naming a branch reads
+like a stronger control than it is when nothing guards the branch.
 
 ## The subject is read, not constructed
 
