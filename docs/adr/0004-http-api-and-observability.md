@@ -72,3 +72,30 @@ The rule count is a read followed by a write rather than a condition expression,
 expression cannot count. Two writes racing can therefore both pass the check, so the limit bounds
 growth rather than holding exactly. That is the residual gap, and it is smaller than the one an
 authorizer would close.
+
+## The write route, closed
+
+`PUT /rules` now uses API Gateway's IAM authorization. A write must be SigV4-signed by a principal
+in this account that holds `execute-api:Invoke`, and API Gateway rejects anything else with a 403
+before the Lambda is invoked. The three options above were weighed again against what the service
+is: single-user, and operated from a terminal that already holds AWS credentials.
+
+An API key was rejected because it identifies a client rather than authorizing one, and HTTP APIs
+do not offer them. A Lambda authorizer would mean writing and testing token validation for one
+caller. Making the deployed surface read-only would have moved writes onto the CLI and around the
+validation in `parseRule`, which exists because the id reaches an email. IAM needed no new code, no
+secret and no cost. It keeps the edge validation, and its signing tool is already installed, since
+curl has done SigV4 natively since 7.75.
+
+The route was split rather than the catch-all authorized: `GET /{proxy+}` stays open and `PUT
+/rules` is its own route. Reads carry public data, and a browser page has to read them without
+credentials. The stack test therefore asserts over every route rather than the named one. A
+catch-all that still accepted `PUT` would route a write around the authorizer while `PUT /rules`
+looked correct.
+
+This closes the overwrite that "only an authorizer closes". The bounds stay, because they still
+apply to whoever holds the credentials and cost nothing. So does the slug charset, because a leaked
+access key should not also put chosen text into a trusted mailbox. It does not close two things. The
+open reads still cost requests, and the throttle limits their rate, not their total. And IAM
+identifies the operator, not a user: per-user rules would need Cognito's JWT authorizer, which
+replaces this rather than building on it.

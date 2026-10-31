@@ -59,7 +59,7 @@ each row below names the symptom an operator would actually see.
 | Marker write fails after a send     | None                                                     | The next run re-sends. A duplicate email is preferred to a missing one                                 |
 | No rules configured                 | Would be indistinguishable from a quiet night            | An explicit log line, `no rules configured`                                                            |
 | Collector exceeds its memory        | Abrupt `Runtime exited`, no application log              | Nothing automatic. 256 MB against a measured 142 MB is the margin                                      |
-| A rule's ceiling set too low        | Silence that looks like expensive electricity            | Nothing. This is the cost of the unauthenticated write route; see ADR 0004                             |
+| A rule's ceiling set too low        | Silence that looks like expensive electricity            | Nothing. Writes need IAM, so only the operator can cause this; see ADR 0004                            |
 | IAM action missing from a role      | 500 to the caller, `AccessDeniedException` in CloudWatch | Nothing automatic. The denial is loud in the logs and silent to the client                             |
 
 Two of those rows have no automatic recovery, and both are about the service being switched off
@@ -75,8 +75,8 @@ Every hourly run reprocesses the same data, so each write has to be safe to repe
 - **Alerts** are deduplicated by marker, compared by overlap rather than equality. The lead-time
   cutoff advances every run, so the same stretch of cheap power is found starting one slot later
   each hour; comparing start times re-sent it every hour.
-- **Rules** are upserts keyed by id, which is also why an unauthenticated write can silently replace
-  one rather than adding another.
+- **Rules** are upserts keyed by id, so a write with an existing id silently replaces that rule
+  rather than adding another.
 
 ## What it consumes
 
@@ -112,8 +112,10 @@ does not bound concurrency and does not make that coupling go away.
 
 ## Security posture
 
-The deployed write route has no authorizer; that is recorded as a weak position in ADR 0004, along
-with what it costs and what closing it would involve. Deployment credentials are short-lived OIDC
+Writes are authorized by IAM: `PUT /rules` must be SigV4-signed by a principal in the deploying
+account, and API Gateway rejects anything else before the Lambda runs. Reads stay open because they
+carry public data. ADR 0004 records how the route was first left open, what that cost, and why it
+was closed with IAM rather than an API key or a Lambda authorizer. Deployment credentials are short-lived OIDC
 tokens with no stored key, scoped to one branch of one repository; ADR 0005 covers the trust policy
 and what it does not close.
 
@@ -128,5 +130,5 @@ person who remembered to update it.
 | [0001](adr/0001-aws-account-and-identity.md)      | Account plan, spending controls, identity, why not Identity Center            |
 | [0002](adr/0002-collector-infrastructure.md)      | CDK over YAML, the Finnish day as a partition key, hourly as a retry strategy |
 | [0003](adr/0003-rule-engine-and-notifications.md) | The AWS-free rule engine, overlap deduplication, SNS over SES                 |
-| [0004](adr/0004-http-api-and-observability.md)    | HTTP API over REST, rules as data, the open write route and its bounds        |
+| [0004](adr/0004-http-api-and-observability.md)    | HTTP API over REST, rules as data, the write route and how it was closed      |
 | [0005](adr/0005-ci-cd-with-oidc.md)               | Deploying from CI, the OIDC trust policy, immutable subject claims            |

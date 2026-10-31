@@ -2,8 +2,9 @@ import { PutCommand, QueryCommand, type QueryCommandInput } from "@aws-sdk/lib-d
 import { type PriceSlot, type Rule } from "../rules/types.js";
 import { type DynamoStoreDeps } from "./store.js";
 
-// The API is unauthenticated and single-user, so there is nobody to derive an
-// identity from. A placeholder for a real one, not a design.
+// Writes are signed by an IAM principal, which identifies the operator rather
+// than a user, so there is still nobody to derive a partition from. A
+// placeholder for a real identity, not a design.
 const USER = "USER#me";
 
 /** Generous for a household, and small enough to bound the table and the email. */

@@ -88,6 +88,11 @@ Finally, `cdk deploy` prints the stack outputs into the workflow log, and a repo
 become readable by everyone when the repository is made public — including runs recorded while it
 was private. The account id is masked through the action's `mask-aws-account-id` input, which is off
 by default and which no change to the outputs would substitute for, since the id also appears inside
-the stack and topic ARNs. The API URL is not masked. Deleting the historical runs, or closing the
-unauthenticated write route described in ADR 0004, has to happen before the repository's visibility
-changes.
+the stack and topic ARNs. The other outputs are masked by a step that reads them from the previous
+deploy, which is why the deploy role holds `cloudformation:DescribeStacks` on this one stack in
+addition to the bootstrap roles. The step fails closed, because an output it cannot read is one it
+cannot mask. Reading through a bootstrap role instead would put the mask after the CDK had started.
+
+Masking is not retroactive, so the runs recorded before it were deleted rather than left behind a
+visibility change. The API id is masked on its own as well as inside the URL, because a mask matches
+the whole value and the id can appear without the URL around it.

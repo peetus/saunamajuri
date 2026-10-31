@@ -18,9 +18,10 @@ function json(statusCode: number, body: unknown): APIGatewayProxyStructuredResul
 // Deliberately narrower than its sinks require. The id is rendered verbatim
 // into an SNS subject and body, and that mail arrives from Amazon with valid
 // DKIM at an address its reader has confirmed, so anything expressive enough
-// for a sentence or a URL is a phishing primitive handed to an unauthenticated
-// caller. Slug characters leave no room for one and cost nothing: the ids this
-// serves are `sauna` and `dishwasher`.
+// for a sentence or a URL is a phishing primitive for whoever can write a rule.
+// Writes need IAM, but a leaked access key should not also be one. Slug
+// characters leave no room for one and cost nothing: the ids this serves are
+// `sauna` and `dishwasher`.
 const RULE_ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
 /** Validates an untrusted body into a Rule, or returns null. */

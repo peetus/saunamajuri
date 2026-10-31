@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib";
-import { Match, Template } from "aws-cdk-lib/assertions";
+import { Template } from "aws-cdk-lib/assertions";
 import { beforeAll, expect, it } from "vitest";
 import { SaunamajuriStack } from "../lib/saunamajuri-stack.js";
 
@@ -76,14 +76,40 @@ it("never accepts a wildcard anywhere in the sub claim", () => {
   expect(subs[0]).toMatch(/^repo:[^:]+\/[^:]+:ref:refs\/heads\/\S+$/);
 });
 
-it("gives the deploy role nothing but the bootstrap roles", () => {
-  synth().hasResourceProperties("AWS::IAM::Policy", {
-    PolicyDocument: {
-      Statement: Match.arrayWith([
-        Match.objectLike({ Action: "sts:AssumeRole", Resource: Match.stringLikeRegexp("^arn:aws:iam::.*:role/cdk-") }),
-      ]),
-    },
-  });
+/** Every statement attached to the role GitHub Actions assumes. */
+function deployRoleStatements(): Record<string, unknown>[] {
+  const roles = synth().findResources("AWS::IAM::Role");
+  const deployRole = Object.keys(roles).filter((id) => id.startsWith("GithubDeployRole"));
+  expect(deployRole).toHaveLength(1);
+
+  const policies = Object.values(synth().findResources("AWS::IAM::Policy")).filter((policy) =>
+    (policy.Properties?.Roles as { Ref?: string }[] | undefined)?.some((role) => role.Ref === deployRole[0]),
+  );
+  return policies.flatMap(
+    (policy) => (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] }).Statement,
+  );
+}
+
+// Exact rather than arrayWith: the claim is "nothing but", and arrayWith passes
+// whatever else is attached.
+it("gives the deploy role nothing but the bootstrap roles and this stack's outputs", () => {
+  const statements = deployRoleStatements();
+
+  expect(statements).toHaveLength(2);
+  expect(statements).toContainEqual(
+    expect.objectContaining({
+      Effect: "Allow",
+      Action: "sts:AssumeRole",
+      Resource: expect.stringMatching(/^arn:aws:iam::\d+:role\/cdk-\*$/),
+    }),
+  );
+  expect(statements).toContainEqual(
+    expect.objectContaining({
+      Effect: "Allow",
+      Action: "cloudformation:DescribeStacks",
+      Resource: { Ref: "AWS::StackId" },
+    }),
+  );
 });
 
 it("keeps log retention at 7 days", () => {
@@ -114,6 +140,40 @@ it("throttles the API stage", () => {
   synth().hasResourceProperties("AWS::ApiGatewayV2::Stage", {
     DefaultRouteSettings: { ThrottlingBurstLimit: 20, ThrottlingRateLimit: 10 },
   });
+});
+
+/** Every API route as its key and the authorization it requires. */
+function routes(): { key: string; auth: unknown }[] {
+  return Object.values(synth().findResources("AWS::ApiGatewayV2::Route")).map((route) => ({
+    key: String(route.Properties?.RouteKey),
+    auth: route.Properties?.AuthorizationType,
+  }));
+}
+
+it("signs rule writes with IAM", () => {
+  expect(routes()).toContainEqual({ key: "PUT /rules", auth: "AWS_IAM" });
+});
+
+// Asserted over every route rather than the one named above: a catch-all that
+// still accepts PUT would route a write around the authorizer while the named
+// route looked correct.
+it("leaves no route that writes without IAM", () => {
+  const writes = routes().filter(({ key }) => !key.startsWith("GET ") && !key.startsWith("OPTIONS "));
+
+  expect(writes.length).toBeGreaterThan(0);
+  for (const route of writes) {
+    expect(route).toEqual({ key: route.key, auth: "AWS_IAM" });
+  }
+});
+
+// Prices are public data and a browser page will read them without credentials.
+it("leaves reads open", () => {
+  const reads = routes().filter(({ key }) => key.startsWith("GET "));
+
+  expect(reads.length).toBeGreaterThan(0);
+  for (const route of reads) {
+    expect(route.auth ?? "NONE").toBe("NONE");
+  }
 });
 
 it("expires price slots with a TTL attribute", () => {

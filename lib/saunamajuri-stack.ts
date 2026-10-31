@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as apigw from "aws-cdk-lib/aws-apigatewayv2";
+import * as authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { type Construct } from "constructs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
@@ -113,10 +114,22 @@ export class SaunamajuriStack extends cdk.Stack {
       },
     });
 
+    const integration = new integrations.HttpLambdaIntegration("ApiIntegration", api);
+
+    httpApi.addRoutes({ path: "/{proxy+}", methods: [apigw.HttpMethod.GET], integration });
+
+    // A write decides what is emailed, or silences it by replacing a rule, so it
+    // needs a caller API Gateway can name. IAM rather than a key or a Lambda
+    // authorizer: the request is SigV4-signed with credentials that already
+    // exist, API Gateway verifies it before the Lambda runs, and only a principal
+    // in this account holding execute-api:Invoke passes. HTTP APIs take no
+    // resource policy, so no other account can be granted it. Kept to the one
+    // route rather than the catch-all, because GET carries public data.
     httpApi.addRoutes({
-      path: "/{proxy+}",
-      methods: [apigw.HttpMethod.GET, apigw.HttpMethod.PUT],
-      integration: new integrations.HttpLambdaIntegration("ApiIntegration", api),
+      path: "/rules",
+      methods: [apigw.HttpMethod.PUT],
+      integration,
+      authorizer: new authorizers.HttpIamAuthorizer(),
     });
 
     // Caps request rate, which bounds spend and the volume of abuse. It does not
@@ -174,6 +187,16 @@ export class SaunamajuriStack extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ["sts:AssumeRole"],
         resources: [`arn:aws:iam::${this.account}:role/cdk-*`],
+      }),
+    );
+
+    // Read before deploying so the workflow can mask the outputs that cdk deploy
+    // is about to print. This role's own credentials, not a bootstrap role's,
+    // because the mask has to be in place before the CDK runs at all.
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["cloudformation:DescribeStacks"],
+        resources: [this.stackId],
       }),
     );
 

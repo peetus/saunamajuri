@@ -61,11 +61,26 @@ jobs:
           # stack ARN and the topic ARN, which no CfnOutput change would suppress.
           mask-aws-account-id: true
 
-      # The API URL still reaches this log through the stack outputs, and a
-      # repository's run logs become readable by everyone when it is made public,
-      # including runs recorded while it was private. Masking is not retroactive.
-      # Delete the historical runs before changing visibility, or close the open
-      # write route first.
+      # cdk deploy prints every stack output, and this log is as public as the
+      # repository. Each value is masked from the previous deploy's outputs, which
+      # name the same resources. The API id is masked on its own as well, because
+      # the URL's mask does not cover it where it appears without the URL around it.
+      #
+      # Fails closed: a deploy that cannot read the outputs cannot mask them, and
+      # would print them. There is always a previous deploy to read, since this
+      # role is created by the stack it deploys.
+      - name: Mask stack outputs
+        run: |
+          values=$(aws cloudformation describe-stacks --stack-name SaunamajuriStack \
+            --query "Stacks[0].Outputs[].OutputValue" --output text | tr '\t' '\n' | sed '/^$/d')
+          [ -n "$values" ] || { echo "no stack outputs to mask"; exit 1; }
+          printf '%s\n' "$values" | while read -r value; do
+            echo "::add-mask::$value"
+            case "$value" in
+              https://*) host=${value#https://}; echo "::add-mask::${host%%.*}" ;;
+            esac
+          done
+
       # The subject claim GitHub actually sends, which the trust policy must match
       # exactly. Built from the numeric ids rather than the names because GitHub
       # issues immutable subjects; `gh api repos/<owner>/<repo>/actions/oidc/

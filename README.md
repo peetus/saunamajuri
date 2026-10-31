@@ -121,8 +121,8 @@ it would stop their alerts with no error anywhere.
 
 ## Using it
 
-The API is unauthenticated. See [Security](#security) before exposing a
-deployment.
+Reads are open. Writes must be signed with AWS credentials from the deploying
+account; see [Security](#security).
 
 ```bash
 API=https://<your-api-id>.execute-api.eu-north-1.amazonaws.com
@@ -137,10 +137,22 @@ curl -s "$API/rules"
 **Add or edit a rule.** `PUT` is an upsert keyed on `id`, so re-sending the same
 id replaces that rule and leaves the others alone.
 
+The request is signed with SigV4, which curl does natively. The credentials are
+whatever the AWS CLI is already using.
+
 ```bash
-curl -s -X PUT "$API/rules" -H 'content-type: application/json' \
+eval "$(aws configure export-credentials --format env)"
+
+curl -s -X PUT "$API/rules" \
+  --aws-sigv4 "aws:amz:eu-north-1:execute-api" \
+  --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \
+  -H 'content-type: application/json' \
   -d '{"id":"dishwasher","durationMinutes":120,"maxAveragePrice":10,"minLeadTimeMinutes":720}'
 ```
+
+Temporary credentials, from SSO or an assumed role, also need
+`-H "x-amz-security-token: $AWS_SESSION_TOKEN"`. An unsigned write gets a 403
+from API Gateway and never reaches the Lambda.
 
 A dishwasher draws far less than a sauna, so it tolerates a looser ceiling; set
 the ceiling per appliance rather than globally. Ids are lowercase letters,
@@ -260,16 +272,24 @@ inside the perpetual free tiers.
 
 ## Security
 
-**The write route has no authorizer.** Anyone who knows the URL can add, replace
-or overwrite rules, which in practice means redirecting or silencing the alerts
-of whoever deployed it. The prices it exposes are public data, and the email
-address is not readable through the API, but the deployment is single-user and
-assumes the URL stays private.
+**Writes require IAM.** `PUT /rules` uses API Gateway's IAM authorization, so a
+request must be SigV4-signed by a principal in the deploying account that holds
+`execute-api:Invoke`. API Gateway checks the signature before the Lambda runs.
+HTTP APIs take no resource policy, so no other account can be granted access.
 
-This is a known, recorded limitation rather than an oversight — see
-[ADR 0004](docs/adr/0004-http-api-and-observability.md) for what it costs and
-what closing it would involve. Do not publish the URL, and add an authorizer
-before running this for anyone but yourself.
+**Reads are open.** The prices are public data, and the email address is not
+readable through the API. The URL is not a secret, but it is not published
+either: an open route still costs requests. The stage throttle limits their
+rate, not their total.
+
+**Deploy logs mask the stack outputs.** `cdk deploy` prints them, and run logs
+are public with the repository, so the workflow masks each value before the
+deploy step runs.
+
+The service is single-user: IAM identifies the operator, not a user. Accounts
+for several people would need a user identity, such as Cognito, in place of IAM.
+[ADR 0004](docs/adr/0004-http-api-and-observability.md) records how the write
+route was first left open, what that cost, and why it was closed this way.
 
 ## License
 

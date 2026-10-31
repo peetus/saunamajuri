@@ -375,6 +375,13 @@ exports[`matches the approved infrastructure snapshot 1`] = `
               "Effect": "Allow",
               "Resource": "arn:aws:iam::123456789012:role/cdk-*",
             },
+            {
+              "Action": "cloudformation:DescribeStacks",
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "AWS::StackId",
+              },
+            },
           ],
           "Version": "2012-10-17",
         },
@@ -542,13 +549,13 @@ exports[`matches the approved infrastructure snapshot 1`] = `
       },
       "Type": "AWS::ApiGatewayV2::Route",
     },
-    "HttpApiPUTproxy52C9B2AF": {
+    "HttpApiPUTrulesAD4162BC": {
       "Properties": {
         "ApiId": {
           "Ref": "HttpApiF5A9A8A7",
         },
-        "AuthorizationType": "NONE",
-        "RouteKey": "PUT /{proxy+}",
+        "AuthorizationType": "AWS_IAM",
+        "RouteKey": "PUT /rules",
         "Target": {
           "Fn::Join": [
             "",
@@ -563,7 +570,7 @@ exports[`matches the approved infrastructure snapshot 1`] = `
       },
       "Type": "AWS::ApiGatewayV2::Route",
     },
-    "HttpApiPUTproxyApiIntegrationPermission3E835C00": {
+    "HttpApiPUTrulesApiIntegrationPermission009F300A": {
       "Properties": {
         "Action": "lambda:InvokeFunction",
         "FunctionName": {
@@ -585,7 +592,7 @@ exports[`matches the approved infrastructure snapshot 1`] = `
               {
                 "Ref": "HttpApiF5A9A8A7",
               },
-              "/*/*/{proxy+}",
+              "/*/*/rules",
             ],
           ],
         },
