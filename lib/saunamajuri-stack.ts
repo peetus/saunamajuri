@@ -160,10 +160,10 @@ export class SaunamajuriStack extends cdk.Stack {
       // The sub condition is the whole security boundary, and it names a branch
       // rather than the repository: scoped to the repository alone it would
       // accept a token from any ref in it, so pushing any side branch would
-      // deploy. What that buys depends on main being protected, which is a
-      // GitHub setting and is not established anywhere in this repository. This
-      // role also deploys the stack that defines it, so whoever can merge here
-      // can widen this condition on the next push.
+      // deploy. What that buys depends on who can push to main, which GitHub's
+      // settings decide rather than this stack. This role also deploys the
+      // stack that defines it, so whoever can merge here can widen this
+      // condition on the next push.
       //
       // The prefix is taken from GitHub rather than built from the repository
       // name, because GitHub issues immutable subjects: the claim carries the

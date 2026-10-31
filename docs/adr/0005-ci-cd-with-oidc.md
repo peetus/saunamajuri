@@ -22,12 +22,20 @@ somebody else. The subject is pinned to one branch of one repository. Without th
 the role would accept a token from any repository on GitHub; scoped only as far as the repository it
 would accept one from any ref within it, so pushing any side branch would deploy.
 
-What the branch scoping buys depends on `main` being protected. It is not, and on this account it
-cannot be: protected branches and rulesets are a paid feature for private repositories, and both
-APIs answer 403 with "Upgrade to GitHub Pro or make this repository public". So the condition means
-a side branch cannot deploy, and nothing more. It does not mean a review happened, and it does not
-stop a direct push to `main`. Worth stating plainly, because a trust policy naming a branch reads
-like a stronger control than it is when nothing guards the branch.
+What the branch scoping buys depends on who can put a commit on `main`. While the repository was
+private, branch protection was not available to answer that: protected branches and rulesets are a
+paid feature for private repositories, and both APIs answered 403 with "Upgrade to GitHub Pro or
+make this repository public". The repository is now public, where they are free, and `main` refuses
+force pushes and deletion.
+
+That is as much as protection can honestly add here, and it is narrower than the word suggests. The
+repository has one maintainer and no other collaborators, so who can push to `main` is answered by
+repository access, not by a rule. A pull request from a fork deploys nothing, because the workflow
+runs on a push to `main` and nowhere else. Requiring a review would need a second maintainer, since
+GitHub does not let an author approve their own pull request. So the condition still does not mean a
+review happened. What protection adds is that a deployed commit cannot later be rewritten out of
+`main`'s history or the branch removed. Worth stating plainly, because a trust policy naming a
+branch reads like a stronger control than it is.
 
 ## The subject is read, not constructed
 
